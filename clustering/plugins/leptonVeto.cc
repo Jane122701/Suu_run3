@@ -39,7 +39,6 @@
 #include <vector>
 // user include files
 #include "FWCore/Framework/interface/Frameworkfwd.h"
-#include "FWCore/Framework/interface/EDAnalyzer.h"
 #include "FWCore/Framework/interface/Event.h"
 #include "FWCore/Framework/interface/MakerMacros.h"
 #include "FWCore/ParameterSet/interface/ParameterSet.h"
@@ -69,7 +68,6 @@
 
 #include <algorithm>   
 
-#include "FWCore/Framework/interface/EDProducer.h"
 #include "DataFormats/PatCandidates/interface/PackedTriggerPrescales.h"
 #include "HLTrigger/HLTcore/interface/HLTConfigProvider.h"
 #include <DataFormats/Math/interface/deltaR.h>
@@ -96,6 +94,7 @@ class leptonVeto : public edm::stream::EDFilter<> {
       edm::EDGetTokenT<std::vector<pat::Electron>> electronToken_;
       edm::EDGetTokenT<std::vector<pat::Tau>> tauToken_;
 	  std::string runType;
+      std::string deepTauTag;   // DeepTau version of the tau IDs, e.g. "DeepTau2018v2p5"
       //virtual void beginRun(edm::Run const&, edm::EventSetup const&) override;
       //virtual void endRun(edm::Run const&, edm::EventSetup const&) override;
       //virtual void beginLuminosityBlock(edm::LuminosityBlock const&, edm::EventSetup const&) override;
@@ -121,6 +120,7 @@ leptonVeto::leptonVeto(const edm::ParameterSet& iConfig)
     muonToken_ =    consumes<std::vector<pat::Muon>>(iConfig.getParameter<edm::InputTag>("muonCollection"));
     electronToken_ =    consumes<std::vector<pat::Electron>>(iConfig.getParameter<edm::InputTag>("electronCollection"));
     tauToken_ =    consumes<std::vector<pat::Tau>>(iConfig.getParameter<edm::InputTag>("tauCollection"));
+    deepTauTag = "DeepTau" + iConfig.getParameter<std::string>("deepTauVersion");   // "2018v2p5" for Run 3 (Run 2: 2017v2p1, which 2024 MiniAOD does not store)
 
    //runType = iConfig.getParameter<std::string>("runType");
 
@@ -190,7 +190,7 @@ leptonVeto::filter(edm::Event& iEvent, const edm::EventSetup& iSetup)
 
             }  
             */                  //                                                      B2G recommends: VLoose                             B2G recommends TightVLoose
-            if ((iT->tauID("byVVLooseDeepTau2017v2p1VSe") > 0.5) && (iT->tauID("byMediumDeepTau2017v2p1VSjet") > 0.5) && (iT->tauID("byTightDeepTau2017v2p1VSmu") > 0.5)  )
+            if ((iT->tauID("byVVLoose" + deepTauTag + "VSe") > 0.5) && (iT->tauID("byMedium" + deepTauTag + "VSjet") > 0.5) && (iT->tauID("byTight" + deepTauTag + "VSmu") > 0.5)  )
             {
                 nTau++;
             }   

@@ -1,5 +1,10 @@
 ////////////////////////////HELP////////////////////////////////
 //////////////Uses new clustering algorithm to capture heavy resonance jet substructure//////////////
+//
+// Run 3 (2022-2024, CMSSW_15_0_22) version of the Run 2 clusteringAnalyzerAll_* analyzers.
+// One source registers the plugins clusteringAnalyzerAll_100 ... _400 and _nocut (see the end of the file).
+// Differences from Run 2 are listed in preprocess/README.md: PUPPI AK4 jets, JEC / JER / jet ID / veto maps / b-tag /
+// pileup inputs from the POG correctionlib files in preprocess/clustering/data/POG, nominal JEC applied in analyze().
 
 //_top_
 // system include files
@@ -26,12 +31,10 @@
 #include "ROOT/RDataFrame.hxx"
 // user include files
 #include "FWCore/Framework/interface/Frameworkfwd.h"
-#include "FWCore/Framework/interface/EDAnalyzer.h"
+#include "FWCore/Framework/interface/one/EDAnalyzer.h"
 #include "FWCore/Framework/interface/Event.h"
 #include "FWCore/Framework/interface/MakerMacros.h"
 #include "FWCore/ParameterSet/interface/ParameterSet.h"
-#include "CondFormats/DataRecord/interface/JetResolutionRcd.h"
-#include "CondFormats/DataRecord/interface/JetResolutionScaleFactorRcd.h"
 #include "FWCore/Framework/interface/Run.h"
 #include "FWCore/Framework/interface/ESHandle.h"
 #include "FWCore/Utilities/interface/InputTag.h"
@@ -78,16 +81,8 @@
 #include "TFile.h"
 #include "TF1.h"
 
-#include "CondFormats/JetMETObjects/interface/JetCorrectorParameters.h"
-#include "CondFormats/JetMETObjects/interface/JetCorrectionUncertainty.h"
-#include "JetMETCorrections/Objects/interface/JetCorrectionsRecord.h"
-#include "JetMETCorrections/JetCorrector/interface/JetCorrector.h"
-#include "CondFormats/JetMETObjects/interface/JetResolutionObject.h"
-#include "JetMETCorrections/Modules/interface/JetResolution.h"
-#include "PhysicsTools/PatUtils/interface/SmearedJetProducerT.h"
-#include "CondFormats/JetMETObjects/interface/FactorizedJetCorrector.h"
+// Run 3: JEC, JEC uncertainty sources and JER are read with correctionlib from the JME POG JSON files (no JetMETObjects text files)
 
-#include "FWCore/Framework/interface/EDProducer.h"
 #include "FWCore/MessageLogger/interface/MessageLogger.h"
 #include <string>
 #include "sortJets.h"
@@ -109,29 +104,33 @@ typedef math::XYZTLorentzVector LorentzVector;
 typedef math::XYZVector Vector;
 using correction::CorrectionSet;
 using namespace LHAPDF;
-class clusteringAnalyzerAll_100 : public edm::EDAnalyzer 
+class clusteringAnalyzerAll : public edm::one::EDAnalyzer<edm::one::SharedResources> 
 {
 public:
-    explicit clusteringAnalyzerAll_100(const edm::ParameterSet&);
+    explicit clusteringAnalyzerAll(const edm::ParameterSet&, double ET_cut_variant);
 private:
-    virtual void analyze(const edm::Event&, const edm::EventSetup&);
+    void analyze(const edm::Event&, const edm::EventSetup&) override;
     double calcMPP(TLorentzVector superJetTLV ); 
     bool fillSJVars(std::map<std::string, float> &treeVars, std::vector<fastjet::PseudoJet> iSJ, int nSuperJets); // BES inputs for the NN
     bool isMatchedtoSJ(std::vector<TLorentzVector> superJetTLVs, TLorentzVector candJet); 
-    bool isgoodjet( double eta,  double NHF, double NEMF, size_t NumConst, double CHF, int CHM, double MUF,    double CEMF, double iJet_pt);
-    bool isgoodjet( double eta,  double NHF, double NEMF, size_t NumConst, double CHF, int CHM, double MUF,    double CEMF, int nfatjets);
+    bool isgoodjet(const pat::Jet& jet, double iJet_pt);   // AK4 PUPPI: eta acceptance + TightLeptonVeto ID (JME POG jetid JSON)
+    bool isgoodjet(const pat::Jet& jet, int nfatjets);     // AK8 PUPPI: eta acceptance + TightLeptonVeto ID (JME POG jetid JSON)
+    bool passesJetID(const pat::Jet& jet, const correction::Correction::Ref& idCorr) const;
     bool isHEM(const double jet_eta, const double jet_phi);
     double top_pt_SF(double top_pt);
     double calcAlphas(double q2);
-    std::vector<edm::FileInPath> get_AK4_JEC_paths(std::string, std::string);
     double calcRenormWeight(double q2, int up_or_dn, int nQCD);
     double calcFactorizWeight(LHAPDF::PDF* pdf, double id1, double id2, double x1, double x2, double q2, int up_or_dn);
-    std::string returnJECFile(std::string year, std::string systematicType, std::string jet_type, std::string runType, bool isAK4PFPuppi);
+    // Run 3 JERC helpers (correctionlib)
+    double evalJEC(const correction::CompoundCorrection::Ref& jec, double area, double eta, double phi, double rawPt, double rho, unsigned int run) const;
+    std::vector<pat::Jet> applyNominalJEC(const std::vector<pat::Jet>& jets, const correction::CompoundCorrection::Ref& jec, double rho, unsigned int run) const;
+    double getJERSF(const std::string& jet_type, double eta, double pt, int variation) const;       // variation: 0 nominal, +1 up, -1 down
+    double getJERResolution(const std::string& jet_type, double eta, double pt, double rho) const;
+    bool failsJetVetoMap(double eta, double phi) const;
     double getJECUncertaintyFromSources(std::string jet_type, double pt, double eta, bool isAK4PFPuppi);
     const reco::Candidate* parse_chain(const reco::Candidate* cand);
     bool applyJERSource(std::string uncertainty_source, double eta);
     int lhapdfPDGID(const int pdgid) const { return std::abs(pdgid) == 21 ? 0 : pdgid; }
-    std::map<std::string, std::map<std::string, std::string>> file_map;
 
 
     //init all inpaths, tokens, instrings
@@ -146,11 +145,7 @@ private:
     edm::EDGetTokenT<GenEventInfoProduct> GeneratorToken_;
     edm::EDGetTokenT<std::vector<float>> pdfWeightToken_;
     edm::EDGetTokenT<std::vector<float>> scaleWeightToken_;
-    edm::EDGetTokenT< double > prefweight_token;
-    edm::EDGetTokenT< double > prefweightup_token;
-    edm::EDGetTokenT< double > prefweightdown_token;
     edm::EDGetTokenT<edm::TriggerResults> triggerBits_;
-    edm::EDGetTokenT<edm::TriggerResults> metFilters_;
 
     edm::EDGetTokenT<double> m_rho_token;
 
@@ -167,7 +162,6 @@ private:
     edm::FileInPath bTagSF_path;
     edm::FileInPath bTagEff_path;
 
-    FactorizedJetCorrector *subjetCorrector;
 
     edm::FileInPath PUfile_path;
     std::string runType;
@@ -178,7 +172,13 @@ private:
     std::string pdfSetType;
 
     std::string jetVetoMapName;
+    std::string jetVetoMapType;   // map type inside the JME jet veto map correction, nominal "jetvetomap"
+    std::string deepTauTag;       // DeepTau version of the tau IDs, e.g. "DeepTau2018v2p5" (the only one stored in 2024 MiniAOD)
     edm::FileInPath jetVetoMapFile;
+    edm::FileInPath jercFile_AK4, jercFile_AK8, jetIDFile;   // JME POG correctionlib files
+    std::string jecTag, jerTag;       // e.g. Summer22_22Sep2023_V4, Summer22_22Sep2023_JRV2
+    std::string bTagAlgo;             // tagger with BTV fixed-WP scale factors for this era (deepJet for 2022-2023, UParTAK4 for 2024)
+    bool isData = false;
 
     std::vector<std::string> triggers;
     std::unique_ptr<Pythia8::Pythia> pythia_;
@@ -189,7 +189,6 @@ private:
     TF1* puppisd_corrRECO_for;
 
 
-    std::vector<edm::FileInPath> AK4_JEC_pars; 
 
     bool doPUID = false;
     bool doPDF = false;
@@ -208,7 +207,7 @@ private:
     bool doPUSF             = false; // will be set to true for MC
     bool doTopPtReweight    = false; // will be set to true for ttbar MC
     bool doPDFWeights       = false; // will be set to true for MC
-    bool doPrefiringWeight   = true;  
+    bool doPrefiringWeight   = true;  // Run 3: there is no L1 prefiring correction; the prefiringWeight_* branches are kept (tree layout as in Run 2) and filled with 1
     bool includeAllBranches  = false; // don't include some branches that are not often used
     bool slimmedSelection    = false; // apply a more strict selection to save space, set through cfg
     bool _verbose            = false; // do printouts of each section for debugging, set through cfg
@@ -280,7 +279,8 @@ private:
 
 
     double PU_eventWeight_up, PU_eventWeight_nom, PU_eventWeight_down;
-    double deepJet_wp_med, deepjet_wp_tight; // deepJet_wp_loose
+    double deepJet_wp_med, deepjet_wp_tight; // medium / tight WP of bTagAlgo, read from the BTV JSON (names kept from Run 2)
+    double AK4_bTag_disc[100];               // discriminator of bTagAlgo (the one the WPs and SFs refer to)
 
     double AK8_JER[25], AK8_JEC[25];
 
@@ -304,7 +304,6 @@ private:
     int lastNonEmptyEFfMapPtBin_med_truec[30], lastNonEmptyEFfMapPtBin_med_trueb[30], lastNonEmptyEFfMapPtBin_med_truelight[30]; 
 
 
-    TH2F * jetVetoMap;
     double prefiringWeight_nom, prefiringWeight_up, prefiringWeight_down;
 
     double bTagEffMap_PtRange, bTagEffMap_Eta_high, bTagEffMap_Eta_low;
@@ -378,16 +377,25 @@ private:
     std::unique_ptr<CorrectionSet> PUjson;
     Correction::Ref PUjson_year;
 
-    // jet veto map stuff
-    double jetVetoMap_XRange, jetVetoMap_YRange, jetVetoMap_Xmin, jetVetoMap_Ymin;
-    int jetVetoMap_nBinsX, jetVetoMap_nBinsY;
+    // jet veto map (JME POG jetvetomaps JSON)
+    std::unique_ptr<CorrectionSet> jetVetoMap_cset;
+    Correction::Ref jetVetoMap;
+
+    // jet ID (JME POG jetid JSON)
+    std::unique_ptr<CorrectionSet> jetID_cset;
+    Correction::Ref jetID_AK4, jetID_AK8;
+
+    // JEC / JER (JME POG jet_jerc and fatJet_jerc JSON)
+    std::unique_ptr<CorrectionSet> jerc_cset_AK4, jerc_cset_AK8;
+    CompoundCorrection::Ref JEC_AK4, JEC_AK8;                       // nominal L1L2L3Res
+    Correction::Ref JER_res_AK4, JER_sf_AK4, JER_sfUnc_AK4;
+    Correction::Ref JER_res_AK8, JER_sf_AK8, JER_sfUnc_AK8;
 
     double QCDFactorization_up_BEST, QCDFactorization_down_BEST, QCDRenormalization_up_BEST, QCDRenormalization_down_BEST;
 
     std::vector<std::string> uncertainty_sources;
-    std::map<std::string, std::unique_ptr<JetCorrectionUncertainty>> JEC_map_AK4;   // contains the correctors for each uncertainty source
-    std::map<std::string, std::unique_ptr<JetCorrectionUncertainty>> JEC_map_AK4PFPuppi;   // contains the correctors for each uncertainty source
-    std::map<std::string, std::unique_ptr<JetCorrectionUncertainty>> JEC_map_AK8;   // contains the correctors for each uncertainty source
+    std::map<std::string, Correction::Ref> JEC_map_AK4;   // AK4PFPuppi uncertainty source -> correction (also used for the AK8 soft-drop subjets)
+    std::map<std::string, Correction::Ref> JEC_map_AK8;   // AK8PFPuppi uncertainty source -> correction
 
     int nMuons_looseID_looseIso = 0, nMuons_medID_looseIso = 0, nMuons_looseID_medIso = 0;
     int nElectrons_looseID_medISO = 0, nElectrons_medID_looseISO= 0, nElectrons_looseID_looseISO= 0, nElectrons_looseID_NOISO = 0;
@@ -417,7 +425,7 @@ private:
 };
 
 //_constructor_
-clusteringAnalyzerAll_100::clusteringAnalyzerAll_100(const edm::ParameterSet& iConfig):
+clusteringAnalyzerAll::clusteringAnalyzerAll(const edm::ParameterSet& iConfig, double ET_cut_variant):
     path_ (iConfig.getParameter<edm::FileInPath>("BESTpath"))
 
 {
@@ -425,6 +433,10 @@ clusteringAnalyzerAll_100::clusteringAnalyzerAll_100(const edm::ParameterSet& iC
     runType   = iConfig.getParameter<std::string>("runType");
     systematicType = iConfig.getParameter<std::string>("systematicType");
     year    = iConfig.getParameter<std::string>("year");
+
+    usesResource("TFileService");
+    ET_cut = ET_cut_variant;   // the plugin name (clusteringAnalyzerAll_100, _150, ..., _nocut) fixes the AK8 ET cut, as in Run 2
+    isData = (runType.find("data") != std::string::npos);
 
     // necessary for importing NN file
     cache_ = new CacheHandler(path_);
@@ -460,7 +472,7 @@ clusteringAnalyzerAll_100::clusteringAnalyzerAll_100(const edm::ParameterSet& iC
              nAK8Cut  = 3;
              nHAK8Cut = 3;
              HT_cut = 2200.;
-             ET_cut = 100;
+             ET_cut = ET_cut_variant;
         }
     }
     else if(slimmedSelection)
@@ -468,7 +480,7 @@ clusteringAnalyzerAll_100::clusteringAnalyzerAll_100(const edm::ParameterSet& iC
         nAK8Cut  = 3;
         nHAK8Cut = 2;
         HT_cut = 1600.;
-        ET_cut = 100;
+        ET_cut = ET_cut_variant;
     }
 
     //if(_verbose) 
@@ -476,7 +488,6 @@ clusteringAnalyzerAll_100::clusteringAnalyzerAll_100(const edm::ParameterSet& iC
 
     // "pdfWeights" "NNPDF31"
     triggerBits_ = consumes<edm::TriggerResults>(iConfig.getParameter<edm::InputTag>("bits"));
-    metFilters_  = consumes<edm::TriggerResults>(edm::InputTag("TriggerResults", "", "PAT"));
 
 
     if( systematicType.find("JEC") != std::string::npos)
@@ -497,7 +508,7 @@ clusteringAnalyzerAll_100::clusteringAnalyzerAll_100(const edm::ParameterSet& iC
         if(doPDF)doPDFWeights = true; 
         else {doPDFWeights = false;}
 
-        if ((runType.find("TTTo") != std::string::npos) || (runType.find("TTJets") != std::string::npos)) doTopPtReweight = true;  
+        if ((runType.find("TTTo") != std::string::npos) || (runType.find("TTto") != std::string::npos) || (runType.find("TTJets") != std::string::npos)) doTopPtReweight = true;   // Run 3 powheg samples are named TTto4Q, TTtoLNu2Q, TTto2L2Nu  
 
         bTagSF_path     = iConfig.getParameter<edm::FileInPath>("bTagSF_path");
         bTagEff_path    = iConfig.getParameter<edm::FileInPath>("bTagEff_path");
@@ -515,7 +526,7 @@ clusteringAnalyzerAll_100::clusteringAnalyzerAll_100(const edm::ParameterSet& iC
 
         if( (doPDFWeights) || (runType.find("QCD") != std::string::npos    && systematicType == "nom") )
         {
-            lheEventProductToken_ = consumes<LHEEventProduct> (edm::InputTag("externalLHEProducer", "", "GEN"));
+            lheEventProductToken_ = consumes<LHEEventProduct> (edm::InputTag("externalLHEProducer"));
 
             if(runType.find("QCDMC_Pt") != std::string::npos)
             {
@@ -612,69 +623,99 @@ clusteringAnalyzerAll_100::clusteringAnalyzerAll_100(const edm::ParameterSet& iC
     }
     PUfile_path       = iConfig.getParameter<edm::FileInPath>("PUfile_path");
 
-    // prefiring weights
-    prefweight_token  = consumes< double >(edm::InputTag("prefiringweight:nonPrefiringProb"));
 
-    if(systematicType == "nom")
+    doPUID = false;   // Run 3 AK4 jets are PUPPI jets: no pileup jet ID is applied (passesJetPUID branch kept, always false)
+    ///////////////////////////////////////////////////////////////////////
+    /////// Run 3 era configuration: JEC / JER / PU / b-tag / triggers /////
+    ///////////////////////////////////////////////////////////////////////
+
+    // year is one of the five Run 3 MC campaigns / data-taking eras used by the POGs:
+    //   "2022"     : Run2022C-D   + Run3Summer22
+    //   "2022EE"   : Run2022E-G   + Run3Summer22EE
+    //   "2023"     : Run2023C     + Run3Summer23
+    //   "2023BPix" : Run2023D     + Run3Summer23BPix
+    //   "2024"     : Run2024C-I   + RunIII2024Summer24
+    // The tags below are the ones in the "latest" JME/BTV/LUM POG correctionlib files copied to
+    // preprocess/clustering/data/POG (see data/POG_sources.tsv for the exact source of each file).
+    if(year == "2022")
     {
-        prefweightup_token    = consumes< double >(edm::InputTag("prefiringweight:nonPrefiringProbUp"));
-        prefweightdown_token = consumes< double >(edm::InputTag("prefiringweight:nonPrefiringProbDown"));
+        jecTag   = "Summer22_22Sep2023_V4";
+        jerTag   = "Summer22_22Sep2023_JRV2";
+        lumiTag  = "Collisions2022_355100_357900_eraBCD_GoldenJson";
+        bTagAlgo = "deepJet";
+    }
+    else if(year == "2022EE")
+    {
+        jecTag   = "Summer22EE_22Sep2023_V4";
+        jerTag   = "Summer22EE_22Sep2023_JRV2";
+        lumiTag  = "Collisions2022_359022_362760_eraEFG_GoldenJson";
+        bTagAlgo = "deepJet";
+    }
+    else if(year == "2023")
+    {
+        jecTag   = "Summer23Prompt23_V4";
+        jerTag   = "Summer23Prompt23_RunCv1234_JRV3";
+        lumiTag  = "Collisions2023_366403_369802_eraBC_GoldenJson";
+        bTagAlgo = "deepJet";
+    }
+    else if(year == "2023BPix")
+    {
+        jecTag   = "Summer23BPixPrompt23_V4";
+        jerTag   = "Summer23BPixPrompt23_RunD_JRV3";
+        lumiTag  = "Collisions2023_369803_370790_eraD_GoldenJson";
+        bTagAlgo = "deepJet";
+    }
+    else if(year == "2024")
+    {
+        jecTag   = "Summer24Prompt24_V5";
+        jerTag   = "Summer24Prompt24_JRV2";
+        lumiTag  = "Collisions24_CDEFGHI_goldenJSON";
+        bTagAlgo = "UParTAK4";   // BTV provides no DeepJet scale factors for 2024; UParT AK4 is the supported tagger
+    }
+    else
+    {
+        throw cms::Exception("clusteringAnalyzerAll") << "Incorrect year: " << year << ". Valid Run 3 values: 2022, 2022EE, 2023, 2023BPix, 2024.";
     }
 
-    doPUID = iConfig.getParameter<bool>("doPUID");
-    includeTightBTag = iConfig.getParameter<bool>("includeTightBTag");
+    // same trigger pair as Run 2 2017-2018; both paths exist unprescaled in the 2022-2024 menus
+    triggers = {"HLT_PFJet500_v", "HLT_PFHT1050_v"};
+
+    // working points are read from the BTV JSON for MC (only used in the b-tag event weights)
+    deepJet_wp_med   = -1.;
+    deepjet_wp_tight = -1.;
+
     ///////////////////////////////////////
-    /////// JEC Uncertainty stuff /////////
+    /////// JEC / JER (correctionlib) /////
     ///////////////////////////////////////
 
+    jercFile_AK4 = iConfig.getParameter<edm::FileInPath>("jercFile_AK4");   // JME POG jet_jerc.json.gz    (AK4PFPuppi)
+    jercFile_AK8 = iConfig.getParameter<edm::FileInPath>("jercFile_AK8");   // JME POG fatJet_jerc.json.gz (AK8PFPuppi)
+    jetIDFile    = iConfig.getParameter<edm::FileInPath>("jetIDFile");      // JME POG jetid.json.gz
 
-    //initialize JEC text files for standard AK4/AK8 jets
+    jerc_cset_AK4 = CorrectionSet::from_file(jercFile_AK4.fullPath());
+    jerc_cset_AK8 = CorrectionSet::from_file(jercFile_AK8.fullPath());
 
-    /////////////////////////////////////////////////////////////////////////
-    //////////////// create file maps for the JEC sources ///////////////////
+    // nominal jet energy corrections, applied in analyze() to the uncorrected MiniAOD jets
+    // (data: L1FastJet + L2Relative + L3Absolute + run-dependent L2L3Residual; MC: the same stack with a unit residual)
+    const std::string jecDataMC = isData ? "DATA" : "MC";
+    JEC_AK4 = jerc_cset_AK4->compound().at(jecTag + "_" + jecDataMC + "_L1L2L3Res_AK4PFPuppi");
+    JEC_AK8 = jerc_cset_AK8->compound().at(jecTag + "_" + jecDataMC + "_L1L2L3Res_AK8PFPuppi");
 
-    file_map["2015"]["MC"] = "Summer19UL16APV_V7_MC";
-    file_map["2016"]["MC"] = "Summer19UL16_V7_MC";
-    file_map["2017"]["MC"] = "Summer19UL17_V5_MC";
-    file_map["2018"]["MC"] = "Summer19UL18_V5_MC";
-
-    file_map["2015"]["dataBCD"] = "Summer19UL16APV_RunBCD_V7_DATA";
-    file_map["2015"]["dataEF"] = "Summer19UL16APV_RunEF_V7_DATA";
-    file_map["2016"]["dataFGH"] = "Summer19UL16_RunFGH_V7_DATA";
-
-    file_map["2017"]["dataB"] = "Summer19UL17_RunB_V5_DATA";
-    file_map["2017"]["dataC"] = "Summer19UL17_RunC_V5_DATA";
-    file_map["2017"]["dataD"] = "Summer19UL17_RunD_V5_DATA";
-    file_map["2017"]["dataE"] = "Summer19UL17_RunE_V5_DATA";
-    file_map["2017"]["dataF"] = "Summer19UL17_RunF_V5_DATA";
-
-    file_map["2018"]["dataA"] = "Summer19UL18_RunA_V5_DATA";
-    file_map["2018"]["dataB"] = "Summer19UL18_RunB_V5_DATA";
-    file_map["2018"]["dataC"] = "Summer19UL18_RunC_V5_DATA";
-    file_map["2018"]["dataD"] = "Summer19UL18_RunD_V5_DATA";
-
-
-    // initialize JEC text files for PUPPI AK4 jets (for softdrop correction) in order 
-
-    std::vector<edm::FileInPath> AK4_JEC_paths = get_AK4_JEC_paths(year, runType);
-
-    std::vector<JetCorrectorParameters> AK4_JEC_pars;
-    for(auto fpath : AK4_JEC_paths)
+    if(!isData)
     {
-        AK4_JEC_pars.push_back( JetCorrectorParameters(fpath.fullPath().c_str()));
+        JER_res_AK4   = jerc_cset_AK4->at(jerTag + "_MC_PtResolution_AK4PFPuppi");
+        JER_sf_AK4    = jerc_cset_AK4->at(jerTag + "_MC_ScaleFactor_AK4PFPuppi");
+        JER_sfUnc_AK4 = jerc_cset_AK4->at(jerTag + "_MC_SFUncertainty_AK4PFPuppi");
+        JER_res_AK8   = jerc_cset_AK8->at(jerTag + "_MC_PtResolution_AK8PFPuppi");
+        JER_sf_AK8    = jerc_cset_AK8->at(jerTag + "_MC_ScaleFactor_AK8PFPuppi");
+        JER_sfUnc_AK8 = jerc_cset_AK8->at(jerTag + "_MC_SFUncertainty_AK8PFPuppi");
     }
-    // init the corrector
-    subjetCorrector = new FactorizedJetCorrector(AK4_JEC_pars);
 
+    jetID_cset = CorrectionSet::from_file(jetIDFile.fullPath());
+    jetID_AK4  = jetID_cset->at("AK4PUPPI_TightLeptonVeto");
+    jetID_AK8  = jetID_cset->at("AK8PUPPI_TightLeptonVeto");
 
-    if(_verbose)std::cout << "Getting text file names." << std::endl;
-    edm::FileInPath  JEC_source_text_AK4        = (edm::FileInPath )returnJECFile(year, systematicType, "AK4", runType, false); 
-    edm::FileInPath  JEC_source_text_AK4PFPuppi = (edm::FileInPath )returnJECFile(year, systematicType, "AK4", runType, true ); // for SD mass correction
-    edm::FileInPath  JEC_source_text_AK8        = (edm::FileInPath )returnJECFile(year, systematicType, "AK8", runType, false );
-
-
-    if(_verbose)std::cout << "AK4/AK8 text files are " << JEC_source_text_AK4 << "--------" << JEC_source_text_AK8 << std::endl;
-    if(_verbose)std::cout << "Finished getting JetCorrectionUncertainty objects from text files." << std::endl;
+    std::cout << "Run 3 era " << year << ": JEC " << jecTag << " (" << jecDataMC << "), JER " << jerTag << ", b-tagger " << bTagAlgo << std::endl;
 
     fatJetToken_ = consumes<std::vector<pat::Jet>>(iConfig.getParameter<edm::InputTag>("fatJetCollection"));
     jetToken_    = consumes<std::vector<pat::Jet>>(iConfig.getParameter<edm::InputTag>("jetCollection"));
@@ -683,55 +724,18 @@ clusteringAnalyzerAll_100::clusteringAnalyzerAll_100(const edm::ParameterSet& iC
     muonToken_ =    consumes<std::vector<pat::Muon>>(iConfig.getParameter<edm::InputTag>("muonCollection"));
     electronToken_ =  consumes<std::vector<pat::Electron>>(iConfig.getParameter<edm::InputTag>("electronCollection"));
     tauToken_ =    consumes<std::vector<pat::Tau>>(iConfig.getParameter<edm::InputTag>("tauCollection"));
+    deepTauTag = "DeepTau" + iConfig.getParameter<std::string>("deepTauVersion");   // "2018v2p5" for Run 3 (Run 2 analyzer: 2017v2p1)
 
 
 
-    m_rho_token = consumes<double>(edm::InputTag("fixedGridRhoAll", "", "RECO"));
+    m_rho_token = consumes<double>(edm::InputTag("fixedGridRhoFastjetAll"));   // rho definition used by the Run 3 JEC (L1) and JER parametrisations
     edm::Service<TFileService> fs;    
     TFile *bTagEff_file;
-    TFile *jetVetoMap_file;
 
     tree = fs->make<TTree>( ("tree_"+systematicType).c_str(), ("tree_"+systematicType).c_str());
 
     
 
-    if(year == "2018")
-    {
-        //deepJet_wp_loose = 0.0490;
-        deepJet_wp_med = 0.2783;
-        deepjet_wp_tight = 0.7100;
-        lumiTag = "Collisions18_UltraLegacy_goldenJSON";
-        triggers = {"HLT_PFJet500_v", "HLT_PFHT1050_v"};
-    }
-    else if(year == "2017")
-    {
-        //deepJet_wp_loose = 0.0532;
-        deepJet_wp_med = 0.3040;
-        deepjet_wp_tight = 0.7476;
-        lumiTag = "Collisions17_UltraLegacy_goldenJSON";
-        triggers = {"HLT_PFJet500_v", "HLT_PFHT1050_v"};
-    }
-    else if(year == "2016")
-    {
-        //deepJet_wp_loose = 0.0480;
-        deepJet_wp_med = 0.2489;
-        deepjet_wp_tight = 0.6377;
-        lumiTag = "Collisions16_UltraLegacy_goldenJSON";
-        triggers = {"HLT_PFJet450_v","HLT_PFHT900_v"};
-    }
-    else if(year == "2015")
-    {
-        //deepJet_wp_loose = 0.0508;
-        deepJet_wp_med = 0.2598;
-        deepjet_wp_tight = 0.6502;
-        lumiTag = "Collisions16_UltraLegacy_goldenJSON";
-        triggers = {"HLT_PFJet450_v","HLT_PFHT900_v"};
-    }
-    else
-    {
-        std::cout << "Incorrect year: " << year << std::endl;
-        return; // return cut, input year is incorrect
-    }
 
 
     // load in the JetCorrectors for each uncertainty source for the given reduced uncertainty source
@@ -780,84 +784,17 @@ clusteringAnalyzerAll_100::clusteringAnalyzerAll_100(const edm::ParameterSet& iC
 
     /// does this need to run for every event .... 
 
-    // get jet corrector maps  
-    if(_verbose)std::cout << "Getting JEC correction maps for AK4 and AK8 jets." << std::endl;
+    // get the JEC uncertainty corrections for each source of the chosen (reduced) uncertainty.
+    // In the JME JSON the sources are stored under the MC tag: <jecTag>_MC_<source>_<algo>, inputs (JetEta, JetPt),
+    // output = relative uncertainty (same convention as JetCorrectionUncertainty::getUncertainty in Run 2).
+    if(_verbose)std::cout << "Getting JEC uncertainty sources for AK4 and AK8 jets." << std::endl;
     for(const auto &uncertainty_source: uncertainty_sources)
     {
-
-        // AK4PFchs
-        if(_verbose)std::cout <<    "----- AK4 jets: -----" << std::endl;
-        if(_verbose)std::cout <<    "uncertainty_source: " << uncertainty_source << std::endl;
-        JetCorrectorParameters source_parameters_reduced_AK4(JEC_source_text_AK4.fullPath().c_str(), uncertainty_source);
-        if(_verbose)std::cout << "AK4: JEC_source_text_AK4.fullPath().c_str() is " << JEC_source_text_AK4.fullPath().c_str() << std::endl;
-        if(_verbose)std::cout <<    "AK4: creating the pointer for JetCorrectionUncertainty" << std::endl;
-        std::unique_ptr<JetCorrectionUncertainty> source_uncertainty_reduced_AK4(new JetCorrectionUncertainty(source_parameters_reduced_AK4));
-        if(_verbose)std::cout <<    "AK4: adding the uncertainty object to the JEC map" << std::endl;
-        JEC_map_AK4.emplace(uncertainty_source, std::move(source_uncertainty_reduced_AK4));
-        if(_verbose)std::cout <<    "AK4: added the uncertainty object to the JEC map" << std::endl;
-
-
-        // AK8PFPuppi  (for SD mass corrections)
-        JetCorrectorParameters source_parameters_reduced_AK4PFPuppi(JEC_source_text_AK4PFPuppi.fullPath().c_str(), uncertainty_source);
-        std::unique_ptr<JetCorrectionUncertainty> source_uncertainty_reduced_AK4PFPuppi(new JetCorrectionUncertainty(source_parameters_reduced_AK4PFPuppi));
-        JEC_map_AK4PFPuppi.emplace(uncertainty_source, std::move(source_uncertainty_reduced_AK4PFPuppi));
-
-
-
-
-
-
-
-        if(_verbose)std::cout <<    "----- AK8 jets: -----" << std::endl;
-        if(_verbose)std::cout << "AK8: JEC_source_text_AK8.fullPath().c_str() is " << JEC_source_text_AK8.fullPath().c_str() << std::endl;
-        if(_verbose)std::cout << "uncertainty_source is " << uncertainty_source << std::endl;
-        JetCorrectorParameters source_parameters_reduced_AK8(JEC_source_text_AK8.fullPath().c_str(), uncertainty_source);
-
-
-        ///    JEC DEBUGGING std::cout << "using the file  " << JEC_source_text_AK8.fullPath().c_str() << " for AK8 PUPPI JECs for uncertainty source    " << uncertainty_source << ". This is unceertainty source number " << source_counter << std::endl;
-        if(_verbose)std::cout <<    "AK8: creating the pointer for JetCorrectionUncertainty" << std::endl;
-        std::unique_ptr<JetCorrectionUncertainty> source_uncertainty_reduced_AK8(new JetCorrectionUncertainty(source_parameters_reduced_AK8));
-        if(_verbose)std::cout <<    "AK8: adding the uncertainty object to the JEC map" << std::endl;
-        JEC_map_AK8.emplace(uncertainty_source, std::move(source_uncertainty_reduced_AK8));
-        if(_verbose)std::cout <<    "AK8: added the uncertainty object to the JEC map" << std::endl;
-
-
-        if(_verbose)
-        {
-            std::cout << "-------------    For uncertainty type @@@@@@@@@@@@ " << systematicType << " @@@@@@@@@@@@ and source $$$$$$$$$$  " << uncertainty_source << " $$$$$$$$$$$, reading from the file " << JEC_source_text_AK8.fullPath().c_str()<< std::endl;
-            for(int iii =0; iii< 200; iii++) // pt
-            {
-                double pt = iii*20.0;  
-                for(int jjj=-24; jjj < 24; jjj ++) // eta
-                {
-                    double eta = jjj*0.1; 
-                    double source_value = -999.; 
-                    JEC_map_AK8[uncertainty_source]->setJetEta( eta );
-                    JEC_map_AK8[uncertainty_source]->setJetPt( pt );
-                    source_value = fabs(JEC_map_AK8[uncertainty_source]->getUncertainty(true));
-                    std::cout << "For uncertainty type " << systematicType << " and source " << uncertainty_source << " with pt/eta = " <<  pt << "/" << eta << ", the uncertainty value is " << source_value << std::endl;
-                }
-            }        
-        }
+        JEC_map_AK4.emplace(uncertainty_source, jerc_cset_AK4->at(jecTag + "_MC_" + uncertainty_source + "_AK4PFPuppi"));
+        JEC_map_AK8.emplace(uncertainty_source, jerc_cset_AK8->at(jecTag + "_MC_" + uncertainty_source + "_AK8PFPuppi"));
+        if(_verbose)std::cout << "Loaded JEC uncertainty source " << uncertainty_source << " for systematic " << systematicType << std::endl;
     }
-
-
-
-    if(_verbose)
-    {
-        // list the uncertainty sources listed in the map
-        for (const auto& pair : JEC_map_AK4) 
-        {
-            std::cout << "AK4 Key: " << pair.first << std::endl;
-        }
-        for (const auto& pair : JEC_map_AK8) 
-        {
-            std::cout << "AK8 Key: " << pair.first << std::endl;
-        }
-    }
-
-
-    if(_verbose)std::cout << "Got JEC correction maps for AK4 and AK8 jets." << std::endl;
+    if(_verbose)std::cout << "Got JEC uncertainty sources for AK4 and AK8 jets." << std::endl;
 
 
     ///////////////////////////////////////////////////////////////
@@ -929,9 +866,13 @@ clusteringAnalyzerAll_100::clusteringAnalyzerAll_100(const edm::ParameterSet& iC
         if(_verbose)std::cout << "Setting up b-tag correctionlib corrector" << std::endl;
 
         cset = CorrectionSet::from_file(bTagSF_path.fullPath());
-        cset_corrector_bc  = cset->at("deepJet_mujets");  //deepJet_comb,  // deepJet_mujets -> what we were using originally, deepJet_ttbar -> what BTV suggested we could use, UPDATE: deepJet_ttbar is not recognized!!!
+        cset_corrector_bc  = cset->at(bTagAlgo + "_mujets");   // b and c jets (Run 2 used deepJet_mujets)
         if(_verbose)std::cout << "Got bc b-tag correctionlib corrector" << std::endl;
-        cset_corrector_light = cset->at("deepJet_incl");    //deepJet_incl
+        cset_corrector_light = cset->at(bTagAlgo + "_light");   // light jets (Run 2 name: deepJet_incl)
+        // fixed working points of the era, from the same BTV file as the scale factors
+        deepJet_wp_med   = cset->at(bTagAlgo + "_wp_values")->evaluate({"M"});
+        deepjet_wp_tight = cset->at(bTagAlgo + "_wp_values")->evaluate({"T"});
+        std::cout << "b-tag working points for " << bTagAlgo << " (" << year << "): medium " << deepJet_wp_med << ", tight " << deepjet_wp_tight << std::endl;
         //get corrections from PU file
         PUjson = CorrectionSet::from_file(PUfile_path.fullPath());
         PUjson_year = PUjson->at(lumiTag);
@@ -945,15 +886,10 @@ clusteringAnalyzerAll_100::clusteringAnalyzerAll_100(const edm::ParameterSet& iC
     //////// Jet veto map stuff //////////
     ////////////////////////////////////// 
 
-    jetVetoMap_file = new TFile( jetVetoMapFile.fullPath().c_str() ); 
-    jetVetoMap = (TH2F*)jetVetoMap_file->Get(jetVetoMapName.c_str());
-    jetVetoMap_XRange = jetVetoMap->GetXaxis()->GetXmax() - jetVetoMap->GetXaxis()->GetXmin();
-    jetVetoMap_YRange = jetVetoMap->GetYaxis()->GetXmax() - jetVetoMap->GetYaxis()->GetXmin();
-
-    jetVetoMap_Xmin = jetVetoMap->GetXaxis()->GetXmin();
-    jetVetoMap_Ymin = jetVetoMap->GetYaxis()->GetXmin();
-    jetVetoMap_nBinsX = jetVetoMap->GetNbinsX();
-    jetVetoMap_nBinsY = jetVetoMap->GetNbinsY();
+    // JME POG jet veto map: correction <jetVetoMapName>, inputs (type, eta, phi); a non-zero value means the jet is in a vetoed region
+    jetVetoMapType  = iConfig.getParameter<std::string>("jetVetoMapType");
+    jetVetoMap_cset = CorrectionSet::from_file(jetVetoMapFile.fullPath());
+    jetVetoMap      = jetVetoMap_cset->at(jetVetoMapName);
 
 
     if(_verbose)std::cout << "Initializing TTree variables." << std::endl;
@@ -1003,6 +939,7 @@ clusteringAnalyzerAll_100::clusteringAnalyzerAll_100(const edm::ParameterSet& iC
     tree->Branch("AK4_phi", AK4_phi , "AK4_phi[nAK4]/D");
     tree->Branch("AK4_mass", AK4_mass, "AK4_mass[nAK4]/D");
     tree->Branch("AK4_DeepJet_disc", AK4_DeepJet_disc, "AK4_DeepJet_disc[nAK4]/D");
+    tree->Branch("AK4_bTag_disc", AK4_bTag_disc, "AK4_bTag_disc[nAK4]/D");   // Run 3: discriminator of the era b-tagger (deepJet 2022-2023, UParTAK4 2024)
     tree->Branch("AK4_fails_veto_map", AK4_fails_veto_map , "AK4_fails_veto_map[nAK4]/O");
     tree->Branch("jet_isHEM", jet_isHEM, "jet_isHEM[nAK4]/O");
     tree->Branch("passesJetPUID", passesJetPUID, "passesJetPUID[nAK4]/O");
@@ -1507,7 +1444,7 @@ clusteringAnalyzerAll_100::clusteringAnalyzerAll_100(const edm::ParameterSet& iC
 
 
 //recursively returns status-change copies of generated particles until you get to new decays
-const reco::Candidate* clusteringAnalyzerAll_100::parse_chain(const reco::Candidate* cand)
+const reco::Candidate* clusteringAnalyzerAll::parse_chain(const reco::Candidate* cand)
 {  
     for (unsigned int iii=0; iii<cand->numberOfDaughters(); iii++)
     {
@@ -1517,143 +1454,88 @@ const reco::Candidate* clusteringAnalyzerAll_100::parse_chain(const reco::Candid
 }
 
 
-//// return back the JEC file for a given systematic, year, and jet type
-std::string clusteringAnalyzerAll_100::returnJECFile(std::string year, std::string systematicType, std::string jet_type, std::string runType, bool isAK4PFPuppi = false)
+// evaluate a correctionlib (compound) correction, filling its inputs by name.
+// The JME JSON input lists differ between eras (JetPhi from 2023BPix on, run for data), so nothing is passed by position.
+template <typename CorrRef>
+static double evalNamedCorrection(const CorrRef& corr, const std::map<std::string, double>& values)
 {
-    std::string data_type = "MC";
-    std::string jet_str = "AK8PFPuppi";
-    if (jet_type == "AK4")
-    { 
-        if(isAK4PFPuppi) jet_str = "AK4PFPuppi";
-        else{ jet_str = "AK4PFchs"; }
-    }
-
-
-    if ((runType.find("data") != std::string::npos) )
+    std::vector<correction::Variable::Type> in;
+    for(const auto& v : corr->inputs())
     {
-        if(year == "2015")
-        {
-            if( (runType.find("dataE") != std::string::npos) || (runType.find("dataF") != std::string::npos)  ) data_type = "dataEF";
-            else {  data_type = "dataBCD";}
-        }
-        if(year == "2016")       data_type = "dataFGH";
-        else if (year == "2017") data_type = runType;
-        else if (year == "2018") data_type = runType;
-
-    } 
-
-    std::string year_str = "2016";
-    if      (year == "2017") year_str = "2017";
-    else if (year == "2018") year_str = "2018";
-
-    if (data_type.find("data") != std::string::npos ) return ("data/JEC_uncertainty_sources/" + year_str + "_UL/" + file_map[year][data_type] + "_UncertaintySources_" +jet_str    + ".txt" ).c_str();
-    else { return ("data/JEC_uncertainty_sources/" + year_str + "_UL/" + file_map[year][data_type]  + "_UncertaintySources_" +jet_str + ".txt" ).c_str(); }
-
+        auto it = values.find(v.name());
+        if(it == values.end()) throw cms::Exception("clusteringAnalyzerAll") << "correction " << corr->name() << " needs input " << v.name() << ", which is not provided";
+        in.emplace_back(it->second);
+    }
+    return corr->evaluate(in);
 }
 
-// returns the file paths to the AK4 PUPPI JES corrections (one for each step) for a given year/era and run type (i.e. whether it is data or MC)
-std::vector<edm::FileInPath> clusteringAnalyzerAll_100::get_AK4_JEC_paths(std::string year, std::string runType)
+// nominal JEC factor (L1FastJet*L2Relative*L3Absolute*L2L3Residual) for an uncorrected jet
+double clusteringAnalyzerAll::evalJEC(const correction::CompoundCorrection::Ref& jec, double area, double eta, double phi, double rawPt, double rho, unsigned int run) const
 {
-    bool isData = false;
-    if(runType.find("data") != std::string::npos) isData = true;
-
-    std::string data_type = "MC";
-    if (isData)
-    {
-        if(year == "2015")
-        {
-            if( (runType.find("dataE") != std::string::npos) || (runType.find("dataF") != std::string::npos)  ) data_type = "dataEF";
-            else {  data_type = "dataBCD";}
-        }
-        if(year == "2016")       data_type = "dataFGH";
-        else if (year == "2017") data_type = runType;
-        else if (year == "2018") data_type = runType;
-
-    } 
-
-    std::string year_str = "2016";
-    if      (year == "2017") year_str = "2017";
-    else if (year == "2018") year_str = "2018";
-
-    std::string JEC_dir = "data/JEC_corrs/" + year_str + "_UL/";
-
-
-    std::vector<edm::FileInPath> AK4_JEC_paths_;
-    std::vector<std::string> corr_steps = {"L1FastJet", "L2Relative","L3Absolute"};
-    if(isData) corr_steps.push_back("L2L3Residual");
-
-
-
-    for(auto corr_step: corr_steps)
-    {
-        edm::FileInPath AK4_JEC_path =  edm::FileInPath((JEC_dir +  file_map[year][data_type] +"_" + corr_step +  "_AK4PFPuppi.txt").c_str());
-        AK4_JEC_paths_.push_back(AK4_JEC_path);
-    }
-
-    return AK4_JEC_paths_;
+    return evalNamedCorrection(jec, { {"JetA", area}, {"JetEta", eta}, {"JetPhi", phi}, {"JetPt", rawPt}, {"Rho", rho}, {"run", double(run)} });
 }
 
+// returns copies of the MiniAOD jets with the nominal Run 3 JEC applied to the uncorrected four-vector.
+// This replaces the Run 2 updateJetCollection step of the cfg (the MiniAOD jets carry the JEC of their production global tag).
+// The jet order of the input collection is kept. userFloat "run3JEC" = applied JEC factor (corrected pt / raw pt),
+// userInt "run3TightLepVetoID" = jet ID decision evaluated on the unmodified jet.
+std::vector<pat::Jet> clusteringAnalyzerAll::applyNominalJEC(const std::vector<pat::Jet>& jets, const correction::CompoundCorrection::Ref& jec, double rho, unsigned int run) const
+{
+    const bool isAK8 = (jec == JEC_AK8);
+    std::vector<pat::Jet> corrected;
+    corrected.reserve(jets.size());
+    for(const auto& jet : jets)
+    {
+        pat::Jet newJet(jet);
+        const auto rawP4 = jet.correctedP4("Uncorrected");
+        const double jecFactor = evalJEC(jec, jet.jetArea(), rawP4.eta(), rawP4.phi(), rawP4.pt(), rho, run);
+        newJet.setP4(rawP4*jecFactor);
+        newJet.addUserFloat("run3JEC", jecFactor);
+        newJet.addUserInt("run3TightLepVetoID", (jet.isPFJet() && passesJetID(jet, isAK8 ? jetID_AK8 : jetID_AK4)) ? 1 : 0);
+        corrected.push_back(newJet);
+    }
+    return corrected;
+}
 
+// JER data/MC scale factor; variation = 0 nominal, +1 / -1 = SF +/- its uncertainty
+double clusteringAnalyzerAll::getJERSF(const std::string& jet_type, double eta, double pt, int variation) const
+{
+    const bool isAK8 = (jet_type == "AK8");
+    const std::map<std::string, double> values = { {"JetEta", eta}, {"JetPt", pt} };
+    double sf = evalNamedCorrection(isAK8 ? JER_sf_AK8 : JER_sf_AK4, values);
+    if(variation != 0) sf += (variation > 0 ? 1. : -1.)*evalNamedCorrection(isAK8 ? JER_sfUnc_AK8 : JER_sfUnc_AK4, values);
+    return sf;
+}
 
+// relative jet pt resolution in simulation
+double clusteringAnalyzerAll::getJERResolution(const std::string& jet_type, double eta, double pt, double rho) const
+{
+    return evalNamedCorrection( (jet_type == "AK8") ? JER_res_AK8 : JER_res_AK4, { {"JetEta", eta}, {"JetPt", pt}, {"Rho", rho} });
+}
 
-/// returns the JEC uncertainty scale factor (from a specific, reduced source) for a given jet with pt, eta
-double clusteringAnalyzerAll_100::getJECUncertaintyFromSources(std::string jet_type, double pt, double eta, bool isAK4PFPuppi = false)
-{  
+// true if (eta, phi) is inside a vetoed region of the JME jet veto map
+bool clusteringAnalyzerAll::failsJetVetoMap(double eta, double phi) const
+{
+    return jetVetoMap->evaluate({jetVetoMapType, eta, phi}) > 0.;
+}
 
-    if(_verbose)std::cout << "----------------------------- new jet --------------------------------- " << std::endl;
-    if(_verbose)std::cout << "Reduced uncertainty is " << systematicType << std::endl;
-
-    if(_verbose)std::cout << "There are " << uncertainty_sources.size() << " uncertainties." << std::endl;
+/// returns the JEC uncertainty scale factor (from a specific, reduced source) for a given jet with pt, eta.
+/// AK4PFPuppi sources are used for AK4 jets and for the AK8 soft-drop subjets (isAK4PFPuppi), AK8PFPuppi sources for AK8 jets.
+double clusteringAnalyzerAll::getJECUncertaintyFromSources(std::string jet_type, double pt, double eta, bool isAK4PFPuppi = false)
+{
+    const auto& JEC_map = (jet_type == "AK8") ? JEC_map_AK8 : JEC_map_AK4;
     double uncert = 0.0;
-    int uncertainty_number = 0;
-    std::string uncertainty_names = "";
-    for(auto uncert_source = uncertainty_sources.begin(); uncert_source!=uncertainty_sources.end();uncert_source++)
+    for(const auto& uncert_source : uncertainty_sources)
     {
-        /// get the uncertainty from the JetCorrector object
-        double AK4_JEC_uncertainty = -999;
-        if(_verbose)std::cout << "Uncertainty number " << uncertainty_number << ". The uncertainty source is " << *uncert_source << std::endl;
-
-        if( jet_type == "AK4")
-        {  
-            if(_verbose)std::cout << "For AK4: Trying to access source " << *uncert_source << std::endl;
-
-            if(isAK4PFPuppi)
-            {
-                JEC_map_AK4PFPuppi[*uncert_source]->setJetEta(eta );
-                JEC_map_AK4PFPuppi[*uncert_source]->setJetPt( pt );
-                AK4_JEC_uncertainty = fabs(JEC_map_AK4PFPuppi[*uncert_source]->getUncertainty(true));
-            }
-            else
-            {
-                JEC_map_AK4[*uncert_source]->setJetEta(eta );
-                JEC_map_AK4[*uncert_source]->setJetPt( pt ); 
-                AK4_JEC_uncertainty = fabs(JEC_map_AK4[*uncert_source]->getUncertainty(true));
-           
-            }
-
-            if(_verbose)std::cout << "Source: " << *uncert_source << ", value:  " << AK4_JEC_uncertainty << std::endl;
-            uncert+= pow(AK4_JEC_uncertainty,2);
-            uncertainty_names += (*uncert_source + " ");
-        }
-        else if(jet_type == "AK8")
-        {
-            if(_verbose)std::cout << "For AK8: Trying to access source " << *uncert_source << std::endl;
-            JEC_map_AK8[*uncert_source]->setJetEta( eta );
-            JEC_map_AK8[*uncert_source]->setJetPt( pt );
-            double AK8_JEC_uncertainty = fabs(JEC_map_AK8[*uncert_source]->getUncertainty(true));
-            if(_verbose)std::cout << "Source: " << *uncert_source << ", value:  " << AK8_JEC_uncertainty << std::endl;
-            uncert+= pow(AK8_JEC_uncertainty,2);  // assuming all sources are uncorrelated to each other, so WILL ADD IN QUADRATURE
-            uncertainty_names += (*uncert_source + ", ");
-        }
-        uncertainty_number++;
+        const double source_value = fabs(evalNamedCorrection(JEC_map.at(uncert_source), { {"JetEta", eta}, {"JetPt", pt} }));
+        if(_verbose)std::cout << jet_type << " JEC source " << uncert_source << ": " << source_value << std::endl;
+        uncert += pow(source_value,2);   // sources are uncorrelated with each other: add in quadrature
     }
-    if(_verbose)std::cout << "Total uncertainty: " << sqrt(uncert) << " from uncertainties: " << uncertainty_names << "(" << uncertainty_number << " total sources)." << std::endl;
-
-    return sqrt(uncert); // sqrt because these are added in quadrature
-}  
+    return sqrt(uncert);
+}
 
 // return whether JER scale factor should be applied for a given uncertainty source and jet eta. This is because the JER uncertainty can be decomposed into different eta groups.
-bool clusteringAnalyzerAll_100::applyJERSource(std::string uncertainty_source, double eta)
+bool clusteringAnalyzerAll::applyJERSource(std::string uncertainty_source, double eta)
 {
     if((uncertainty_source == "JER_up") || (uncertainty_source == "JER_down"))return true; // all jets are corrected for the "total" JER uncertainty
     else if( (uncertainty_source.find("JER_eta193") != std::string::npos) && (abs(eta) < 1.93    ))return true;
@@ -1661,68 +1543,53 @@ bool clusteringAnalyzerAll_100::applyJERSource(std::string uncertainty_source, d
     else {return false;}
 }
 
-// returns bool if jet (or more generally, object) is within the HEM region
-bool clusteringAnalyzerAll_100::isHEM(double jet_eta, double jet_phi)
+// HEM 15/16 was a 2018-only detector failure; there is no HEM region in Run 3.
+// The function and the *_isHEM branches are kept so the tree layout matches Run 2 (always false).
+bool clusteringAnalyzerAll::isHEM(double jet_eta, double jet_phi)
 {
-    if(year != "2018") return false; // HEM is only relevant for 2018
-
-    if( (jet_phi > -1.57)&&( jet_phi < -0.87) )
-    {
-        if( (jet_eta > -3.0)&&(jet_eta < -1.3))return true;
-    }
     return false;
 }
 
-// bool corresponding to if AK4 jet passes tight ID
-bool clusteringAnalyzerAll_100::isgoodjet(double eta, double NHF,double NEMF, const size_t NumConst,double CHF,const int CHM, double MUF, double CEMF, double iJet_pt)
+// Run 3 PUPPI jet ID: "TightLeptonVeto" from the JME POG jetid JSON (AK4PUPPI_TightLeptonVeto / AK8PUPPI_TightLeptonVeto).
+// Inputs follow the NanoAOD definitions the JSON was derived for. This must be evaluated on the unmodified MiniAOD jet,
+// because pat::Jet energy fractions are defined relative to the raw energy derived from the stored JEC factors.
+bool clusteringAnalyzerAll::passesJetID(const pat::Jet& jet, const correction::Correction::Ref& idCorr) const
 {
-
-    if(year == "2015" || year == "2016")
+    std::vector<correction::Variable::Type> in;
+    for(const auto& v : idCorr->inputs())
     {
-        if( (abs(eta) > 2.4)) return false; 
+        const std::string n = v.name();
+        if      (n == "eta")            in.emplace_back(double(jet.eta()));
+        else if (n == "chHEF")          in.emplace_back(double(jet.chargedHadronEnergyFraction()));
+        else if (n == "neHEF")          in.emplace_back(double(jet.neutralHadronEnergyFraction()));
+        else if (n == "chEmEF")         in.emplace_back(double(jet.chargedEmEnergyFraction()));
+        else if (n == "neEmEF")         in.emplace_back(double(jet.neutralEmEnergyFraction()));
+        else if (n == "muEF")           in.emplace_back(double(jet.muonEnergyFraction()));
+        else if (n == "chMultiplicity") in.emplace_back(int(jet.chargedMultiplicity()));
+        else if (n == "neMultiplicity") in.emplace_back(int(jet.neutralMultiplicity()));
+        else if (n == "multiplicity")   in.emplace_back(int(jet.chargedMultiplicity() + jet.neutralMultiplicity()));
+        else throw cms::Exception("clusteringAnalyzerAll") << "jet ID correction " << idCorr->name() << " needs unknown input " << n;
     }
-    else if(year =="2017" || year == "2018")
-    {
-        if( (abs(eta) >= 2.5)) return false; 
-    }
-    // apply the MEDIUM PU jet id https://twiki.cern.ch/twiki/bin/viewauth/CMS/PileupJetIDUL
-    //if( (!passesJetPUid) && (iJet_pt < 50.0)) return false; // jet PU ID is only relevant for AK4 jets with pt < 50 GeV
-
-    // apply the tight jet ID
-    // UL "TightLepVeto" jet ID, central region (|eta| <= 2.4 for 2016, <= 2.6 for 2017/18; the eta cuts above keep every jet inside it).
-    // A jet passes if NHF < 0.9, NEMF < 0.9, nConstituents > 1, CHF > 0, charged multiplicity > 0, MUF < 0.8, CEMF < 0.8
-    // (thresholds and operators as in PhysicsTools/SelectorUtils PFJetIDSelectionFunctor, RUN2UL16CHS/PUPPI and RUN2ULCHS/PUPPI).
-    if ((NHF>=0.9) || (NEMF>=0.9) || (NumConst<=1) || (CHF<=0.) || (CHM<=0) || (MUF>=0.8) || (CEMF>=0.8)) return false;
-    
-    return true;
-
+    return idCorr->evaluate(in) > 0.5;
 }
-// checks AK8 jet (tight) ID and applies some eta conditions
-bool clusteringAnalyzerAll_100::isgoodjet(double eta, double NHF,double NEMF, const size_t NumConst,double CHF,const int CHM, double MUF, double CEMF, int nfatjets)
+
+// bool corresponding to if AK4 jet passes the eta acceptance and the tight (lepton veto) ID.
+// The ID decision is computed in applyNominalJEC on the unmodified jet and carried as a userInt.
+bool clusteringAnalyzerAll::isgoodjet(const pat::Jet& jet, double iJet_pt)
 {
-    
-    // the |eta| < 1.4 for jets 3,4,5, etc. is for eliminating ISR
-
-    if(year == "2015" || year == "2016")
-    {
-        if ( (nfatjets < 2) && (abs(eta) > 2.4) ) return false;
-        else if ( (nfatjets >= 2) && (abs(eta) > 1.4) ) return false;
-    }
-    else if(year =="2017" || year == "2018")
-    {
-        if ( (nfatjets < 2) && (abs(eta) >= 2.5) ) return false;
-        else if ( (nfatjets >= 2) && (abs(eta) > 1.4) ) return false;
-    }
-    
-
-    // UL "TightLepVeto" jet ID, central region (|eta| <= 2.4 for 2016, <= 2.6 for 2017/18; the eta cuts above keep every jet inside it).
-    // A jet passes if NHF < 0.9, NEMF < 0.9, nConstituents > 1, CHF > 0, charged multiplicity > 0, MUF < 0.8, CEMF < 0.8
-    // (thresholds and operators as in PhysicsTools/SelectorUtils PFJetIDSelectionFunctor, RUN2UL16CHS/PUPPI and RUN2ULCHS/PUPPI).
-    if ((NHF>=0.9) || (NEMF>=0.9) || (NumConst<=1) || (CHF<=0.) || (CHM<=0) || (MUF>=0.8) || (CEMF>=0.8)) return false;
-    return true;
+    if( fabs(jet.eta()) >= 2.5 ) return false;   // same acceptance as Run 2 2017-2018
+    return jet.userInt("run3TightLepVetoID") > 0;
+}
+// checks AK8 jet (tight lepton veto) ID and applies some eta conditions
+bool clusteringAnalyzerAll::isgoodjet(const pat::Jet& jet, int nfatjets)
+{
+    // the |eta| < 1.4 for jets 3,4,5, etc. is for eliminating ISR (same as Run 2 2017-2018)
+    if ( (nfatjets < 2) && (fabs(jet.eta()) >= 2.5) ) return false;
+    else if ( (nfatjets >= 2) && (fabs(jet.eta()) > 1.4) ) return false;
+    return jet.userInt("run3TightLepVetoID") > 0;
 }
 // calculates the MPP frame given a TLorentzVector of SJ particles
-double clusteringAnalyzerAll_100::calcMPP(TLorentzVector superJetTLV )    
+double clusteringAnalyzerAll::calcMPP(TLorentzVector superJetTLV )    
 {
     Vector jet_axis(superJetTLV.Px()/superJetTLV.P(),superJetTLV.Py()/superJetTLV.P(),superJetTLV.Pz()/superJetTLV.P());
     double min_pp = 1e12;
@@ -1743,7 +1610,7 @@ double clusteringAnalyzerAll_100::calcMPP(TLorentzVector superJetTLV )
 }
 
 // returns the top pt scale factor as detailed here - https://twiki.cern.ch/twiki/bin/view/CMS/TopPtReweighting#Run_1_strategy_Obsolete
-double clusteringAnalyzerAll_100::top_pt_SF(double top_pt)
+double clusteringAnalyzerAll::top_pt_SF(double top_pt)
 {
 
     if (top_pt > 500.) top_pt = 500.;
@@ -1752,7 +1619,7 @@ double clusteringAnalyzerAll_100::top_pt_SF(double top_pt)
     return exp(0.0615-0.0005*top_pt);  // this is the scale factor based on data aka data-NLO and data-NNLO weights
 }
 // tells you if a TLorentzVector is associated (= perfectly lines up with in terms of delta R ) with a candidate jet 
-bool clusteringAnalyzerAll_100::isMatchedtoSJ(std::vector<TLorentzVector> superJetTLVs, TLorentzVector candJet)
+bool clusteringAnalyzerAll::isMatchedtoSJ(std::vector<TLorentzVector> superJetTLVs, TLorentzVector candJet)
 {
     for(auto iJet = superJetTLVs.begin(); iJet!=superJetTLVs.end(); iJet++)
     {
@@ -1761,7 +1628,7 @@ bool clusteringAnalyzerAll_100::isMatchedtoSJ(std::vector<TLorentzVector> superJ
     return false;
 }
 // return alpha for QCD scale uncertainty
-double clusteringAnalyzerAll_100::calcAlphas(double q2) 
+double clusteringAnalyzerAll::calcAlphas(double q2) 
 { 
     double mZ = 91.2; //Z boson mass in the NNPDF31_nnlo_as_0118 docs (http://lhapdfsets.web.cern.ch/lhapdfsets/current/NNPDF31_nnlo_as_0118/NNPDF31_nnlo_as_0118.info )
     double alphas_mZ = 0.118; //alpha_s evaluated at Z boson mass, based on the NNPDF31_nnlo_as_0118 docs (http://lhapdfsets.web.cern.ch/lhapdfsets/current/NNPDF31_nnlo_as_0118/NNPDF31_nnlo_as_0118.info )
@@ -1770,7 +1637,7 @@ double clusteringAnalyzerAll_100::calcAlphas(double q2)
     return alphas_mZ / (1 + alphas_mZ * b0 * std::log(q2 / pow(mZ,2))); // alphas evolution
 }
 // return factorization weight for QCD factorization uncertainty
-double clusteringAnalyzerAll_100::calcFactorizWeight(LHAPDF::PDF* pdf, double id1, double id2, double x1, double x2, double q2, int up_or_dn) 
+double clusteringAnalyzerAll::calcFactorizWeight(LHAPDF::PDF* pdf, double id1, double id2, double x1, double x2, double q2, int up_or_dn) 
 {
     double k2;
     if ( up_or_dn == 1 )
@@ -1791,7 +1658,7 @@ double clusteringAnalyzerAll_100::calcFactorizWeight(LHAPDF::PDF* pdf, double id
     return weight;
 }
 // return renormalization weight
-double clusteringAnalyzerAll_100::calcRenormWeight(double q2, int up_or_dn, int nQCD) 
+double clusteringAnalyzerAll::calcRenormWeight(double q2, int up_or_dn, int nQCD) 
 { 
     if (nQCD == 0) //Time saving check since we will exponentiate by nQCD as the last step
           return 1;
@@ -1813,7 +1680,7 @@ double clusteringAnalyzerAll_100::calcRenormWeight(double q2, int up_or_dn, int 
 
 
 // does filling of the superjet variables to give the NN
-bool clusteringAnalyzerAll_100::fillSJVars(std::map<std::string, float> &treeVars, std::vector<fastjet::PseudoJet> iSJ, int nSuperJets )
+bool clusteringAnalyzerAll::fillSJVars(std::map<std::string, float> &treeVars, std::vector<fastjet::PseudoJet> iSJ, int nSuperJets )
 {
    bool testNewVars = true; // include new SJ vars to give to NN
 
@@ -2618,7 +2485,7 @@ bool clusteringAnalyzerAll_100::fillSJVars(std::map<std::string, float> &treeVar
 
 
 // main analyzer function: pre-select events, collect particles from selected AK8 jets, recluster superjets, calculate all variables from superjets 
-void clusteringAnalyzerAll_100::analyze(const edm::Event& iEvent, const edm::EventSetup& iSetup)
+void clusteringAnalyzerAll::analyze(const edm::Event& iEvent, const edm::EventSetup& iSetup)
 {
 
     if(_verbose)std::cout << "-------- Beginning of Analyzer -------- " << std::endl;
@@ -2674,16 +2541,8 @@ void clusteringAnalyzerAll_100::analyze(const edm::Event& iEvent, const edm::Eve
             {
                 //std::cout << "trigname is " << trigname << std::endl;
 
-                if(year == "2015" || year == "2016")
-                {
-                    if(trigname == "HLT_PFJet450_v")     passesPFJet = true;
-                    else if(trigname == "HLT_PFHT900_v") passesPFHT = true;
-                }      
-                else if (year == "2017" || year == "2018") 
-                {
-                    if (trigname == "HLT_PFJet500_v")     passesPFJet = true;
-                    else if(trigname == "HLT_PFHT1050_v") passesPFHT = true;
-                }
+                if (trigname == "HLT_PFJet500_v")     passesPFJet = true;
+                else if(trigname == "HLT_PFHT1050_v") passesPFHT = true;
 
                 if(debug)std::cout << "Found the " << *iT << " trigger." << std::endl;
             }
@@ -2792,13 +2651,13 @@ void clusteringAnalyzerAll_100::analyze(const edm::Event& iEvent, const edm::Eve
             }  
             */
 
-            if ((iT->tauID("byVVLooseDeepTau2017v2p1VSe") > 0.5) && (iT->tauID("byLooseDeepTau2017v2p1VSjet") > 0.5) && (iT->tauID("byLooseDeepTau2017v2p1VSmu") > 0.5) ) nTau_looseVsJet_looseVsMuon_VVLooseVse++;
-            if ((iT->tauID("byVVLooseDeepTau2017v2p1VSe") > 0.5) && (iT->tauID("byVLooseDeepTau2017v2p1VSjet") > 0.5) && (iT->tauID("byLooseDeepTau2017v2p1VSmu") > 0.5)    ) nTau_VLooseVsJet_looseVsMuon_VVLooseVse++;
-            if ((iT->tauID("byVVLooseDeepTau2017v2p1VSe") > 0.5) && (iT->tauID("byVVLooseDeepTau2017v2p1VSjet") > 0.5) && (iT->tauID("byLooseDeepTau2017v2p1VSmu") > 0.5)  ) nTau_VVLlooseVsJet_looseVsMuon_VVLooseVse++;
+            if ((iT->tauID("byVVLoose" + deepTauTag + "VSe") > 0.5) && (iT->tauID("byLoose" + deepTauTag + "VSjet") > 0.5) && (iT->tauID("byLoose" + deepTauTag + "VSmu") > 0.5) ) nTau_looseVsJet_looseVsMuon_VVLooseVse++;
+            if ((iT->tauID("byVVLoose" + deepTauTag + "VSe") > 0.5) && (iT->tauID("byVLoose" + deepTauTag + "VSjet") > 0.5) && (iT->tauID("byLoose" + deepTauTag + "VSmu") > 0.5)    ) nTau_VLooseVsJet_looseVsMuon_VVLooseVse++;
+            if ((iT->tauID("byVVLoose" + deepTauTag + "VSe") > 0.5) && (iT->tauID("byVVLoose" + deepTauTag + "VSjet") > 0.5) && (iT->tauID("byLoose" + deepTauTag + "VSmu") > 0.5)  ) nTau_VVLlooseVsJet_looseVsMuon_VVLooseVse++;
 
-            if ((iT->tauID("byVVLooseDeepTau2017v2p1VSe") > 0.5) && (iT->tauID("byLooseDeepTau2017v2p1VSjet") > 0.5) && (iT->tauID("byVLooseDeepTau2017v2p1VSmu") > 0.5)    ) nTau_looseVsJet_VLooseVsMuon_VVLooseVse++;
-            if ((iT->tauID("byVVLooseDeepTau2017v2p1VSe") > 0.5) && (iT->tauID("byVLooseDeepTau2017v2p1VSjet") > 0.5) && (iT->tauID("byVLooseDeepTau2017v2p1VSmu") > 0.5)  ) nTau_VLooseVsJet_VLooseVsMuon_VVLooseVse++;
-            if ((iT->tauID("byVVLooseDeepTau2017v2p1VSe") > 0.5) && (iT->tauID("byVVLooseDeepTau2017v2p1VSjet") > 0.5) && (iT->tauID("byVLooseDeepTau2017v2p1VSmu") > 0.5) ) nTau_VVLlooseVsJet_VLooseVsMuon_VVLooseVse++;
+            if ((iT->tauID("byVVLoose" + deepTauTag + "VSe") > 0.5) && (iT->tauID("byLoose" + deepTauTag + "VSjet") > 0.5) && (iT->tauID("byVLoose" + deepTauTag + "VSmu") > 0.5)    ) nTau_looseVsJet_VLooseVsMuon_VVLooseVse++;
+            if ((iT->tauID("byVVLoose" + deepTauTag + "VSe") > 0.5) && (iT->tauID("byVLoose" + deepTauTag + "VSjet") > 0.5) && (iT->tauID("byVLoose" + deepTauTag + "VSmu") > 0.5)  ) nTau_VLooseVsJet_VLooseVsMuon_VVLooseVse++;
+            if ((iT->tauID("byVVLoose" + deepTauTag + "VSe") > 0.5) && (iT->tauID("byVVLoose" + deepTauTag + "VSjet") > 0.5) && (iT->tauID("byVLoose" + deepTauTag + "VSmu") > 0.5) ) nTau_VVLlooseVsJet_VLooseVsMuon_VVLooseVse++;
 
           }     
     }
@@ -2816,14 +2675,16 @@ void clusteringAnalyzerAll_100::analyze(const edm::Event& iEvent, const edm::Eve
     std::vector<TLorentzVector> leadAK4Jets;
     std::vector<TLorentzVector> selectedAK4_TLV; // will be used to study superjet taggging flavour dependence 
 
-    JME::JetResolution resolution_AK4            = JME::JetResolution::get(iSetup, "AK4PFchs_pt");                  //load JER stuff from global tag
-    JME::JetResolutionScaleFactor resolution_sf_AK4 = JME::JetResolutionScaleFactor::get(iSetup, "AK4PFchs");
 
     edm::Handle<std::vector<pat::Jet>> smallJets;
     iEvent.getByToken(jetToken_, smallJets);
 
     edm::Handle<double> rho;
     iEvent.getByToken(m_rho_token, rho);
+
+    // Run 3: apply the nominal JEC (JME POG JSON) to the uncorrected MiniAOD jets; the loops below run over these corrected copies
+    const unsigned int runNumber = iEvent.id().run();
+    const std::vector<pat::Jet> smallJetsJEC = applyNominalJEC(*smallJets, JEC_AK4, *rho, runNumber);
 
 
     //// tight b-tag WP variables
@@ -2855,7 +2716,7 @@ void clusteringAnalyzerAll_100::analyze(const edm::Event& iEvent, const edm::Eve
 
 
     // loop over AK4 jets: correct with JECs and JERs, get information for selection, save kinematic information, and calculate b-tagging event weights
-    for(auto iJet = smallJets->begin(); iJet != smallJets->end(); iJet++) 
+    for(auto iJet = smallJetsJEC.begin(); iJet != smallJetsJEC.end(); iJet++) 
     {
 
         double AK4_sf_total = 1.0;
@@ -2864,7 +2725,7 @@ void clusteringAnalyzerAll_100::analyze(const edm::Event& iEvent, const edm::Eve
         if( (iJet->pt() < 10. ) || (!(iJet->isPFJet())) || ( abs(iJet->eta()) >= 2.5 )) continue;  //don't even bother with these jets (lost causes that won't pass selection even with corrections)
 
         ////////////////////////////////////////////////////////////////////////////////////////////////////////////
-        ///////// _JET ENERGY CORRECTION UNCERTAINTY STUFF, AK4 jets should already be corrected in the cfg ////////
+        ///////// _JET ENERGY CORRECTION UNCERTAINTY STUFF, AK4 jets are already JEC-corrected (applyNominalJEC) /////
         ////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
         if(doJEC)
@@ -2908,22 +2769,16 @@ void clusteringAnalyzerAll_100::analyze(const edm::Event& iEvent, const edm::Eve
                 double sigmaJER     = -1e12;    //this is the "resolution" you get from the scale factors 
 
                 //these are for getting the JER scale factors
-                JME::JetParameters parameters_1;
-                parameters_1.setJetPt(iJet->pt());
-                parameters_1.setJetEta(iJet->eta());
-                parameters_1.setRho(*rho);
-                sigmaJER = resolution_AK4.getResolution(parameters_1);    //pT resolution
+                sigmaJER = getJERResolution("AK4", iJet->eta(), iJet->pt(), *rho);    //pT resolution
 
-                JME::JetParameters parameters;
-                parameters.setJetPt(iJet->pt());
-                parameters.setJetEta(iJet->eta());
-                sJER    = resolution_sf_AK4.getScaleFactor(parameters ); // nominal sJER value
-                sJER_nom = resolution_sf_AK4.getScaleFactor(parameters    ); // copy of the nominal sJER value
+                const double JER_pt_ = iJet->pt(), JER_eta_ = iJet->eta();
+                sJER    = getJERSF("AK4", JER_eta_, JER_pt_, 0); // nominal sJER value
+                sJER_nom = getJERSF("AK4", JER_eta_, JER_pt_, 0); // copy of the nominal sJER value
 
                 if( applyJERSource(systematicType, iJet->eta()) ) // only true if this is run for the JER uncertainty AND if the jet eta is in the correct range
                 {
-                    if( systematicType.find("_up") != std::string::npos )       sJER = resolution_sf_AK4.getScaleFactor(parameters, Variation::UP    ); // sJER + 1 sigma uncertainty
-                    else if( systematicType.find("_down") != std::string::npos ) sJER = resolution_sf_AK4.getScaleFactor(parameters, Variation::DOWN); // sJER - 1 sigma uncertainty
+                    if( systematicType.find("_up") != std::string::npos )       sJER = getJERSF("AK4", JER_eta_, JER_pt_, +1); // sJER + 1 sigma uncertainty
+                    else if( systematicType.find("_down") != std::string::npos ) sJER = getJERSF("AK4", JER_eta_, JER_pt_, -1); // sJER - 1 sigma uncertainty
                 }
 
                 const reco::GenJet *genJet = iJet->genJet();
@@ -2949,7 +2804,6 @@ void clusteringAnalyzerAll_100::analyze(const edm::Event& iEvent, const edm::Eve
         pat::Jet corrJet(*iJet);
         LorentzVector corrJetP4(AK4_sf_total*iJet->px(),AK4_sf_total*iJet->py(),AK4_sf_total*iJet->pz(),AK4_sf_total*iJet->energy());
         corrJet.setP4(corrJetP4);
-        if(_verbose)std::cout << "The AK4 PU jet id bool is " << bool(corrJet.userInt("pileupJetIdUpdated:fullId") & (1 << 1) )<< std::endl;
 
         nAK4_uncut++;
 
@@ -2957,24 +2811,21 @@ void clusteringAnalyzerAll_100::analyze(const edm::Event& iEvent, const edm::Eve
         if((corrJet.pt() > 50.)&&(abs(corrJet.eta()) < 2.5)    )totHT+= abs(corrJet.pt() ); // changed from 30 GeV
 
         // apply AK4 jet selection (post JEC and JER)
-        bool PUID = true; // assumed true if not applying this
-        if((doPUID) && (corrJet.pt() < 50.))    // if jet pt > 50 GeV, don't need PU ID, so skip
-        {
-            PUID = false;
-            PUID = bool( corrJet.userInt("pileupJetIdUpdated:fullId") & (1 << 1));
-        }
-        if( (corrJet.pt() <50.) || (!(corrJet.isPFJet())) || (!isgoodjet(corrJet.eta(),corrJet.neutralHadronEnergyFraction(), corrJet.neutralEmEnergyFraction(),
-                    corrJet.numberOfDaughters(),corrJet.chargedHadronEnergyFraction(),corrJet.chargedMultiplicity(),
-                    corrJet.muonEnergyFraction(),corrJet.chargedEmEnergyFraction(), corrJet.pt() )) )  // changed from 30 GeV
+        bool PUID = true; // PUPPI jets: no pileup jet ID in Run 3 (doPUID is always false)
+        if( (corrJet.pt() <50.) || (!(corrJet.isPFJet())) || (!isgoodjet(corrJet, corrJet.pt() )) )  // changed from 30 GeV
         {
             if(debug) std::cout << "Jet does not pass initial selection " << std::endl;
             continue;
         }
 
-        double jec = iJet->pt() / iJet->correctedP4("Uncorrected").pt();
+        double jec = iJet->userFloat("run3JEC");   // nominal Run 3 JEC factor (corrected pt / raw pt), set in applyNominalJEC
         AK4_jec_full[nAK4] = jec;
 
-        double deepJetScore = corrJet.bDiscriminator("pfDeepFlavourJetTags:probb") + corrJet.bDiscriminator("pfDeepFlavourJetTags:probbb")+ corrJet.bDiscriminator("pfDeepFlavourJetTags:problepb");
+        // DeepJet b score (stored for all eras where MiniAOD provides it)
+        const double deepJetOnlyScore = corrJet.bDiscriminator("pfDeepFlavourJetTags:probb") + corrJet.bDiscriminator("pfDeepFlavourJetTags:probbb")+ corrJet.bDiscriminator("pfDeepFlavourJetTags:problepb");
+        // score of the tagger the BTV working points and scale factors of this era refer to (bTagAlgo). The variable keeps its Run 2 name.
+        double deepJetScore = deepJetOnlyScore;
+        if(bTagAlgo == "UParTAK4") deepJetScore = corrJet.bDiscriminator("pfUnifiedParticleTransformerAK4JetTags:probb") + corrJet.bDiscriminator("pfUnifiedParticleTransformerAK4JetTags:probbb")+ corrJet.bDiscriminator("pfUnifiedParticleTransformerAK4JetTags:problepb");
         if(_verbose)std::cout << "the year is " << year << " with working point value of " << deepjet_wp_tight << ". The hadronFlavour is " << corrJet.hadronFlavour() << " and deepjet score " << deepJetScore<< std::endl;
 
 
@@ -3533,10 +3384,8 @@ void clusteringAnalyzerAll_100::analyze(const edm::Event& iEvent, const edm::Eve
             }
         } // end b-tag clause
 
-        int vetoMap_xbin = (int)((iJet->eta() - jetVetoMap_Xmin)*jetVetoMap_nBinsX/jetVetoMap_XRange ) +1;   // eta(b) = b*(range / # bins) + b0 -> b(eta) = (eta - b0)*(# bins / range)
-        int vetoMap_ybin = (int)((iJet->phi() - jetVetoMap_Ymin)*jetVetoMap_nBinsY/jetVetoMap_YRange ) +1;   // phi(b) = b*(range / # bins) + b0 -> b(phi) = (phi - b0)*(# bins / range)
         AK4_fails_veto_map[nAK4] = false; // failing the veto map is a bad thing, it means these regions are not "hot"
-        if(jetVetoMap->GetBinContent(vetoMap_xbin,vetoMap_ybin) > 0) AK4_fails_veto_map[nAK4] = true;
+        if(failsJetVetoMap(iJet->eta(), iJet->phi())) AK4_fails_veto_map[nAK4] = true;
 
         if(isHEM(corrJet.eta(),corrJet.phi()))
         {
@@ -3559,7 +3408,8 @@ void clusteringAnalyzerAll_100::analyze(const edm::Event& iEvent, const edm::Eve
         if (doPUID) passesJetPUID[nAK4] = PUID;
 
         AK4_bdisc[nAK4] = corrJet.bDiscriminator("pfDeepCSVJetTags:probb") + corrJet.bDiscriminator("pfDeepCSVJetTags:probbb"); // legacy, not used anymore
-        AK4_DeepJet_disc[nAK4] = deepJetScore;
+        AK4_DeepJet_disc[nAK4] = deepJetOnlyScore;   // DeepJet b score, as in Run 2
+        AK4_bTag_disc[nAK4]    = deepJetScore;       // score of bTagAlgo (identical to AK4_DeepJet_disc for 2022-2023, UParT AK4 for 2024)
         AK4_is_near_highE_CA4[nAK4] = false; // initialize this to false
         lab_AK4_AK8_parent[nAK4] = -1;    // init this to identify AK4 jets that aren't inside any AK8 jets
         AK4_SJ_assignment[nAK4] = -999; // this will correspond to AK4 jets that are not assigned to a superjet (because they're not in an AK8 jet)
@@ -3746,9 +3596,8 @@ void clusteringAnalyzerAll_100::analyze(const edm::Event& iEvent, const edm::Eve
     std::vector<TLorentzVector> selectedAK8_TLV;
     edm::Handle<std::vector<pat::Jet> > fatJets;
     iEvent.getByToken(fatJetToken_, fatJets);
+    const std::vector<pat::Jet> fatJetsJEC = applyNominalJEC(*fatJets, JEC_AK8, *rho, runNumber);   // Run 3 nominal JEC, see the AK4 section
 
-    JME::JetResolution resolution = JME::JetResolution::get(iSetup, "AK8PF_pt");         //load JER stuff from global tag
-    JME::JetResolutionScaleFactor resolution_sf = JME::JetResolutionScaleFactor::get(iSetup, "AK8PF");
 
     double AK8_jet_corrections[50]; // holding onto the jet corrections for later
 
@@ -3768,7 +3617,7 @@ void clusteringAnalyzerAll_100::analyze(const edm::Event& iEvent, const edm::Eve
     double selected_AK8_px = 0, selected_AK8_py =0, selected_AK8_pz = 0, selected_AK8_E = 0;
 
     // loop over AK8 jets, save information for event selection, grab particles to create superjets
-    for(auto iJet = fatJets->begin(); iJet != fatJets->end(); iJet++)    
+    for(auto iJet = fatJetsJEC.begin(); iJet != fatJetsJEC.end(); iJet++)    
     {
 
         if( (sqrt(pow(iJet->mass(),2)+pow(iJet->pt(),2)) < 25.) || (!(iJet->isPFJet())) || ( abs(iJet->eta()) >= 2.5 )) continue;    //don't even bother with these jets
@@ -3777,7 +3626,7 @@ void clusteringAnalyzerAll_100::analyze(const edm::Event& iEvent, const edm::Eve
         double AK8_JEC_corr_factor = 1.0;
 
         ////////////////////////////////////////////////////////////////////////////////////////////////////////////
-        ///////// _JET ENERGY CORRECTION UNCERTAINTY STUFF, AK8 jets should already be corrected in the cfg ////////
+        ///////// _JET ENERGY CORRECTION UNCERTAINTY STUFF, AK8 jets are already JEC-corrected (applyNominalJEC) /////
         ////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
         if(doJEC)
@@ -3815,27 +3664,21 @@ void clusteringAnalyzerAll_100::analyze(const edm::Event& iEvent, const edm::Eve
                 double sigmaJER = -9999.;    //this is the "resolution" you get from the scale factors 
 
                 //these are for getting the JER scale factors
-                JME::JetParameters parameters_1;
-                parameters_1.setJetPt(iJet->pt());
-                parameters_1.setJetEta(iJet->eta());
-                parameters_1.setRho(*rho);
-                sigmaJER = resolution.getResolution(parameters_1); //pT resolution
+                sigmaJER = getJERResolution("AK8", iJet->eta(), iJet->pt(), *rho); //pT resolution
 
                 //JME::JetParameters
-                JME::JetParameters parameters;
-                parameters.setJetPt(iJet->pt());
-                parameters.setJetEta(iJet->eta());
-                sJER =    resolution_sf.getScaleFactor(parameters );   //{{JME::Binning::JetEta, iJet->eta()}});
+                const double JER_pt_ = iJet->pt(), JER_eta_ = iJet->eta();
+                sJER =    getJERSF("AK8", JER_eta_, JER_pt_, 0);   //{{JME::Binning::JetEta, iJet->eta()}});
 
                 if( applyJERSource(systematicType, iJet->eta()) )
                 {
                     if( systematicType.find("_up") != std::string::npos ) 
                     {
-                        sJER = resolution_sf.getScaleFactor(parameters, Variation::UP);    // SF + 1 sigma uncertainty
+                        sJER = getJERSF("AK8", JER_eta_, JER_pt_, +1);    // SF + 1 sigma uncertainty
                     }
                     else if( systematicType.find("_down") != std::string::npos ) 
                     {
-                        sJER = resolution_sf.getScaleFactor(parameters, Variation::DOWN); // SF - 1 sigma uncertainty
+                        sJER = getJERSF("AK8", JER_eta_, JER_pt_, -1); // SF - 1 sigma uncertainty
                     }
                 }
 
@@ -3882,11 +3725,8 @@ void clusteringAnalyzerAll_100::analyze(const edm::Event& iEvent, const edm::Eve
             double sj_JEC_corr = 1.0;      
 
             // get the subjet AK4 JEC value
-            subjetCorrector->setJetPt(it->correctedP4("Uncorrected").pt()); // use the uncorrected subjet pt
-            subjetCorrector->setJetEta(it->eta());
-            subjetCorrector->setJetA(it->jetArea());
-            subjetCorrector->setRho(*rho); 
-            sj_JEC_corr = subjetCorrector->getCorrection();
+            // AK4PFPuppi JEC evaluated on the uncorrected subjet (as in Run 2, where the AK4PFPuppi text files were used)
+            sj_JEC_corr = evalJEC(JEC_AK4, it->jetArea(), it->correctedP4(0).eta(), it->correctedP4(0).phi(), it->correctedP4(0).pt(), *rho, runNumber);
 
             // get the fractional JEC uncertainty value
             double AK4_JEC_uncert;
@@ -3917,21 +3757,15 @@ void clusteringAnalyzerAll_100::analyze(const edm::Event& iEvent, const edm::Eve
                     double sigmaJER = -1e12;    //this is the "resolution" you get from the scale factors 
 
                     //these are for getting the JER scale factors
-                    JME::JetParameters parameters_1;
-                    parameters_1.setJetPt(sj_JEC_corr*it->correctedP4(0).pt());
-                    parameters_1.setJetEta(it->correctedP4(0).eta());
-                    parameters_1.setRho(*rho);
-                    sigmaJER = resolution_AK4.getResolution(parameters_1);    //pT resolution
+                    sigmaJER = getJERResolution("AK4", it->correctedP4(0).eta(), sj_JEC_corr*it->correctedP4(0).pt(), *rho);    //pT resolution
 
-                    JME::JetParameters parameters;
-                    parameters.setJetPt(sj_JEC_corr*it->correctedP4(0).pt());
-                    parameters.setJetEta(it->correctedP4(0).eta());
-                    sJER    = resolution_sf_AK4.getScaleFactor(parameters ); // nominal sJER value
+                    const double JER_pt_ = sj_JEC_corr*it->correctedP4(0).pt(), JER_eta_ = it->correctedP4(0).eta();
+                    sJER    = getJERSF("AK4", JER_eta_, JER_pt_, 0); // nominal sJER value
 
                     if( applyJERSource(systematicType, it->correctedP4(0).eta()) ) // only true if this is run for the JER uncertainty AND if the jet eta is in the correct range
                     {
-                        if( systematicType.find("_up") != std::string::npos )        sJER = resolution_sf_AK4.getScaleFactor(parameters, Variation::UP    ); // sJER + 1 sigma uncertainty
-                        else if( systematicType.find("_down") != std::string::npos ) sJER = resolution_sf_AK4.getScaleFactor(parameters, Variation::DOWN); // sJER - 1 sigma uncertainty
+                        if( systematicType.find("_up") != std::string::npos )        sJER = getJERSF("AK4", JER_eta_, JER_pt_, +1); // sJER + 1 sigma uncertainty
+                        else if( systematicType.find("_down") != std::string::npos ) sJER = getJERSF("AK4", JER_eta_, JER_pt_, -1); // sJER - 1 sigma uncertainty
                     }
 
                     randomNum->SetSeed( abs(static_cast<int>(it->correctedP4(0).phi()*1e4)) );
@@ -3963,7 +3797,7 @@ void clusteringAnalyzerAll_100::analyze(const edm::Event& iEvent, const edm::Eve
 
 
         // Count up "heavy" AK8 jets
-        if((corrJet.pt() > 500.) && ((corrJet.isPFJet())) && (isgoodjet(corrJet.eta(),corrJet.neutralHadronEnergyFraction(), corrJet.neutralEmEnergyFraction(),corrJet.numberOfDaughters(),corrJet.chargedHadronEnergyFraction(),corrJet.chargedMultiplicity(),corrJet.muonEnergyFraction(),corrJet.chargedEmEnergyFraction(),nfatjets) ) && (M_SD > 45.)) 
+        if((corrJet.pt() > 500.) && ((corrJet.isPFJet())) && (isgoodjet(corrJet, nfatjets) ) && (M_SD > 45.)) 
         {
             if(isHEM(corrJet.eta(),corrJet.phi())) jet_pre_isHEM[nfatjet_pre] = true;
             else{ jet_pre_isHEM[nfatjet_pre] = false;}
@@ -3975,62 +3809,62 @@ void clusteringAnalyzerAll_100::analyze(const edm::Event& iEvent, const edm::Eve
         if(_verbose)    std::cout << "counting AK8 jet types. " << std::endl;
 
         // grid counters for the ET / heavy-AK8 working point scan
-        if((sqrt(pow(corrJet.mass(),2)+pow(corrJet.pt(),2)) >= 100.) && ((corrJet.isPFJet())) && (isgoodjet(corrJet.eta(),corrJet.neutralHadronEnergyFraction(), corrJet.neutralEmEnergyFraction(),corrJet.numberOfDaughters(),corrJet.chargedHadronEnergyFraction(),corrJet.chargedMultiplicity(),corrJet.muonEnergyFraction(),corrJet.chargedEmEnergyFraction(),nfatjets )) && (corrJet.mass()>= 0.)) nAK8_ET100++;
-        if((sqrt(pow(corrJet.mass(),2)+pow(corrJet.pt(),2)) >= 150.) && ((corrJet.isPFJet())) && (isgoodjet(corrJet.eta(),corrJet.neutralHadronEnergyFraction(), corrJet.neutralEmEnergyFraction(),corrJet.numberOfDaughters(),corrJet.chargedHadronEnergyFraction(),corrJet.chargedMultiplicity(),corrJet.muonEnergyFraction(),corrJet.chargedEmEnergyFraction(),nfatjets )) && (corrJet.mass()>= 0.)) nAK8_ET150++;
-        if((sqrt(pow(corrJet.mass(),2)+pow(corrJet.pt(),2)) >= 200.) && ((corrJet.isPFJet())) && (isgoodjet(corrJet.eta(),corrJet.neutralHadronEnergyFraction(), corrJet.neutralEmEnergyFraction(),corrJet.numberOfDaughters(),corrJet.chargedHadronEnergyFraction(),corrJet.chargedMultiplicity(),corrJet.muonEnergyFraction(),corrJet.chargedEmEnergyFraction(),nfatjets )) && (corrJet.mass()>= 0.)) nAK8_ET200++;
-        if((sqrt(pow(corrJet.mass(),2)+pow(corrJet.pt(),2)) >= 250.) && ((corrJet.isPFJet())) && (isgoodjet(corrJet.eta(),corrJet.neutralHadronEnergyFraction(), corrJet.neutralEmEnergyFraction(),corrJet.numberOfDaughters(),corrJet.chargedHadronEnergyFraction(),corrJet.chargedMultiplicity(),corrJet.muonEnergyFraction(),corrJet.chargedEmEnergyFraction(),nfatjets )) && (corrJet.mass()>= 0.)) nAK8_ET250++;
-        if((sqrt(pow(corrJet.mass(),2)+pow(corrJet.pt(),2)) >= 300.) && ((corrJet.isPFJet())) && (isgoodjet(corrJet.eta(),corrJet.neutralHadronEnergyFraction(), corrJet.neutralEmEnergyFraction(),corrJet.numberOfDaughters(),corrJet.chargedHadronEnergyFraction(),corrJet.chargedMultiplicity(),corrJet.muonEnergyFraction(),corrJet.chargedEmEnergyFraction(),nfatjets )) && (corrJet.mass()>= 0.)) nAK8_ET300++;
-        if((sqrt(pow(corrJet.mass(),2)+pow(corrJet.pt(),2)) >= 350.) && ((corrJet.isPFJet())) && (isgoodjet(corrJet.eta(),corrJet.neutralHadronEnergyFraction(), corrJet.neutralEmEnergyFraction(),corrJet.numberOfDaughters(),corrJet.chargedHadronEnergyFraction(),corrJet.chargedMultiplicity(),corrJet.muonEnergyFraction(),corrJet.chargedEmEnergyFraction(),nfatjets )) && (corrJet.mass()>= 0.)) nAK8_ET350++;
-        if((sqrt(pow(corrJet.mass(),2)+pow(corrJet.pt(),2)) >= 400.) && ((corrJet.isPFJet())) && (isgoodjet(corrJet.eta(),corrJet.neutralHadronEnergyFraction(), corrJet.neutralEmEnergyFraction(),corrJet.numberOfDaughters(),corrJet.chargedHadronEnergyFraction(),corrJet.chargedMultiplicity(),corrJet.muonEnergyFraction(),corrJet.chargedEmEnergyFraction(),nfatjets )) && (corrJet.mass()>= 0.)) nAK8_ET400++;
-        if((corrJet.pt() > 600.) && ((corrJet.isPFJet())) && (isgoodjet(corrJet.eta(),corrJet.neutralHadronEnergyFraction(), corrJet.neutralEmEnergyFraction(),corrJet.numberOfDaughters(),corrJet.chargedHadronEnergyFraction(),corrJet.chargedMultiplicity(),corrJet.muonEnergyFraction(),corrJet.chargedEmEnergyFraction(),nfatjets) ) && (M_SD > 10.) && (!isHEM(corrJet.eta(),corrJet.phi()))) nHeavyAK8_pt600_M10++;
-        if((corrJet.pt() > 600.) && ((corrJet.isPFJet())) && (isgoodjet(corrJet.eta(),corrJet.neutralHadronEnergyFraction(), corrJet.neutralEmEnergyFraction(),corrJet.numberOfDaughters(),corrJet.chargedHadronEnergyFraction(),corrJet.chargedMultiplicity(),corrJet.muonEnergyFraction(),corrJet.chargedEmEnergyFraction(),nfatjets) ) && (M_SD > 20.) && (!isHEM(corrJet.eta(),corrJet.phi()))) nHeavyAK8_pt600_M20++;
-        if((corrJet.pt() > 600.) && ((corrJet.isPFJet())) && (isgoodjet(corrJet.eta(),corrJet.neutralHadronEnergyFraction(), corrJet.neutralEmEnergyFraction(),corrJet.numberOfDaughters(),corrJet.chargedHadronEnergyFraction(),corrJet.chargedMultiplicity(),corrJet.muonEnergyFraction(),corrJet.chargedEmEnergyFraction(),nfatjets) ) && (M_SD > 30.) && (!isHEM(corrJet.eta(),corrJet.phi()))) nHeavyAK8_pt600_M30++;
-        if((corrJet.pt() > 600.) && ((corrJet.isPFJet())) && (isgoodjet(corrJet.eta(),corrJet.neutralHadronEnergyFraction(), corrJet.neutralEmEnergyFraction(),corrJet.numberOfDaughters(),corrJet.chargedHadronEnergyFraction(),corrJet.chargedMultiplicity(),corrJet.muonEnergyFraction(),corrJet.chargedEmEnergyFraction(),nfatjets) ) && (M_SD > 40.) && (!isHEM(corrJet.eta(),corrJet.phi()))) nHeavyAK8_pt600_M40++;
-        if((corrJet.pt() > 600.) && ((corrJet.isPFJet())) && (isgoodjet(corrJet.eta(),corrJet.neutralHadronEnergyFraction(), corrJet.neutralEmEnergyFraction(),corrJet.numberOfDaughters(),corrJet.chargedHadronEnergyFraction(),corrJet.chargedMultiplicity(),corrJet.muonEnergyFraction(),corrJet.chargedEmEnergyFraction(),nfatjets) ) && (M_SD > 45.) && (!isHEM(corrJet.eta(),corrJet.phi()))) nHeavyAK8_pt600_M45++;
-        if((corrJet.pt() > 600.) && ((corrJet.isPFJet())) && (isgoodjet(corrJet.eta(),corrJet.neutralHadronEnergyFraction(), corrJet.neutralEmEnergyFraction(),corrJet.numberOfDaughters(),corrJet.chargedHadronEnergyFraction(),corrJet.chargedMultiplicity(),corrJet.muonEnergyFraction(),corrJet.chargedEmEnergyFraction(),nfatjets) ) && (M_SD > 50.) && (!isHEM(corrJet.eta(),corrJet.phi()))) nHeavyAK8_pt600_M50++;
-        if((corrJet.pt() > 600.) && ((corrJet.isPFJet())) && (isgoodjet(corrJet.eta(),corrJet.neutralHadronEnergyFraction(), corrJet.neutralEmEnergyFraction(),corrJet.numberOfDaughters(),corrJet.chargedHadronEnergyFraction(),corrJet.chargedMultiplicity(),corrJet.muonEnergyFraction(),corrJet.chargedEmEnergyFraction(),nfatjets) ) && (M_SD > 55.) && (!isHEM(corrJet.eta(),corrJet.phi()))) nHeavyAK8_pt600_M55++;
-        if((corrJet.pt() > 600.) && ((corrJet.isPFJet())) && (isgoodjet(corrJet.eta(),corrJet.neutralHadronEnergyFraction(), corrJet.neutralEmEnergyFraction(),corrJet.numberOfDaughters(),corrJet.chargedHadronEnergyFraction(),corrJet.chargedMultiplicity(),corrJet.muonEnergyFraction(),corrJet.chargedEmEnergyFraction(),nfatjets) ) && (M_SD > 60.) && (!isHEM(corrJet.eta(),corrJet.phi()))) nHeavyAK8_pt600_M60++;
-        if((corrJet.pt() > 600.) && ((corrJet.isPFJet())) && (isgoodjet(corrJet.eta(),corrJet.neutralHadronEnergyFraction(), corrJet.neutralEmEnergyFraction(),corrJet.numberOfDaughters(),corrJet.chargedHadronEnergyFraction(),corrJet.chargedMultiplicity(),corrJet.muonEnergyFraction(),corrJet.chargedEmEnergyFraction(),nfatjets) ) && (M_SD > 70.) && (!isHEM(corrJet.eta(),corrJet.phi()))) nHeavyAK8_pt600_M70++;
-        if((corrJet.pt() > 500.) && ((corrJet.isPFJet())) && (isgoodjet(corrJet.eta(),corrJet.neutralHadronEnergyFraction(), corrJet.neutralEmEnergyFraction(),corrJet.numberOfDaughters(),corrJet.chargedHadronEnergyFraction(),corrJet.chargedMultiplicity(),corrJet.muonEnergyFraction(),corrJet.chargedEmEnergyFraction(),nfatjets) ) && (M_SD > 10.) && (!isHEM(corrJet.eta(),corrJet.phi()))) nHeavyAK8_pt500_M10++;
-        if((corrJet.pt() > 500.) && ((corrJet.isPFJet())) && (isgoodjet(corrJet.eta(),corrJet.neutralHadronEnergyFraction(), corrJet.neutralEmEnergyFraction(),corrJet.numberOfDaughters(),corrJet.chargedHadronEnergyFraction(),corrJet.chargedMultiplicity(),corrJet.muonEnergyFraction(),corrJet.chargedEmEnergyFraction(),nfatjets) ) && (M_SD > 20.) && (!isHEM(corrJet.eta(),corrJet.phi()))) nHeavyAK8_pt500_M20++;
-        if((corrJet.pt() > 500.) && ((corrJet.isPFJet())) && (isgoodjet(corrJet.eta(),corrJet.neutralHadronEnergyFraction(), corrJet.neutralEmEnergyFraction(),corrJet.numberOfDaughters(),corrJet.chargedHadronEnergyFraction(),corrJet.chargedMultiplicity(),corrJet.muonEnergyFraction(),corrJet.chargedEmEnergyFraction(),nfatjets) ) && (M_SD > 30.) && (!isHEM(corrJet.eta(),corrJet.phi()))) nHeavyAK8_pt500_M30++;
-        if((corrJet.pt() > 500.) && ((corrJet.isPFJet())) && (isgoodjet(corrJet.eta(),corrJet.neutralHadronEnergyFraction(), corrJet.neutralEmEnergyFraction(),corrJet.numberOfDaughters(),corrJet.chargedHadronEnergyFraction(),corrJet.chargedMultiplicity(),corrJet.muonEnergyFraction(),corrJet.chargedEmEnergyFraction(),nfatjets) ) && (M_SD > 40.) && (!isHEM(corrJet.eta(),corrJet.phi()))) nHeavyAK8_pt500_M40++;
-        if((corrJet.pt() > 500.) && ((corrJet.isPFJet())) && (isgoodjet(corrJet.eta(),corrJet.neutralHadronEnergyFraction(), corrJet.neutralEmEnergyFraction(),corrJet.numberOfDaughters(),corrJet.chargedHadronEnergyFraction(),corrJet.chargedMultiplicity(),corrJet.muonEnergyFraction(),corrJet.chargedEmEnergyFraction(),nfatjets) ) && (M_SD > 45.) && (!isHEM(corrJet.eta(),corrJet.phi()))) nHeavyAK8_pt500_M45++;
-        if((corrJet.pt() > 500.) && ((corrJet.isPFJet())) && (isgoodjet(corrJet.eta(),corrJet.neutralHadronEnergyFraction(), corrJet.neutralEmEnergyFraction(),corrJet.numberOfDaughters(),corrJet.chargedHadronEnergyFraction(),corrJet.chargedMultiplicity(),corrJet.muonEnergyFraction(),corrJet.chargedEmEnergyFraction(),nfatjets) ) && (M_SD > 50.) && (!isHEM(corrJet.eta(),corrJet.phi()))) nHeavyAK8_pt500_M50++;
-        if((corrJet.pt() > 500.) && ((corrJet.isPFJet())) && (isgoodjet(corrJet.eta(),corrJet.neutralHadronEnergyFraction(), corrJet.neutralEmEnergyFraction(),corrJet.numberOfDaughters(),corrJet.chargedHadronEnergyFraction(),corrJet.chargedMultiplicity(),corrJet.muonEnergyFraction(),corrJet.chargedEmEnergyFraction(),nfatjets) ) && (M_SD > 55.) && (!isHEM(corrJet.eta(),corrJet.phi()))) nHeavyAK8_pt500_M55++;
-        if((corrJet.pt() > 500.) && ((corrJet.isPFJet())) && (isgoodjet(corrJet.eta(),corrJet.neutralHadronEnergyFraction(), corrJet.neutralEmEnergyFraction(),corrJet.numberOfDaughters(),corrJet.chargedHadronEnergyFraction(),corrJet.chargedMultiplicity(),corrJet.muonEnergyFraction(),corrJet.chargedEmEnergyFraction(),nfatjets) ) && (M_SD > 60.) && (!isHEM(corrJet.eta(),corrJet.phi()))) nHeavyAK8_pt500_M60++;
-        if((corrJet.pt() > 500.) && ((corrJet.isPFJet())) && (isgoodjet(corrJet.eta(),corrJet.neutralHadronEnergyFraction(), corrJet.neutralEmEnergyFraction(),corrJet.numberOfDaughters(),corrJet.chargedHadronEnergyFraction(),corrJet.chargedMultiplicity(),corrJet.muonEnergyFraction(),corrJet.chargedEmEnergyFraction(),nfatjets) ) && (M_SD > 70.) && (!isHEM(corrJet.eta(),corrJet.phi()))) nHeavyAK8_pt500_M70++;
-        if((corrJet.pt() > 400.) && ((corrJet.isPFJet())) && (isgoodjet(corrJet.eta(),corrJet.neutralHadronEnergyFraction(), corrJet.neutralEmEnergyFraction(),corrJet.numberOfDaughters(),corrJet.chargedHadronEnergyFraction(),corrJet.chargedMultiplicity(),corrJet.muonEnergyFraction(),corrJet.chargedEmEnergyFraction(),nfatjets) ) && (M_SD > 10.) && (!isHEM(corrJet.eta(),corrJet.phi()))) nHeavyAK8_pt400_M10++;
-        if((corrJet.pt() > 400.) && ((corrJet.isPFJet())) && (isgoodjet(corrJet.eta(),corrJet.neutralHadronEnergyFraction(), corrJet.neutralEmEnergyFraction(),corrJet.numberOfDaughters(),corrJet.chargedHadronEnergyFraction(),corrJet.chargedMultiplicity(),corrJet.muonEnergyFraction(),corrJet.chargedEmEnergyFraction(),nfatjets) ) && (M_SD > 20.) && (!isHEM(corrJet.eta(),corrJet.phi()))) nHeavyAK8_pt400_M20++;
-        if((corrJet.pt() > 400.) && ((corrJet.isPFJet())) && (isgoodjet(corrJet.eta(),corrJet.neutralHadronEnergyFraction(), corrJet.neutralEmEnergyFraction(),corrJet.numberOfDaughters(),corrJet.chargedHadronEnergyFraction(),corrJet.chargedMultiplicity(),corrJet.muonEnergyFraction(),corrJet.chargedEmEnergyFraction(),nfatjets) ) && (M_SD > 30.) && (!isHEM(corrJet.eta(),corrJet.phi()))) nHeavyAK8_pt400_M30++;
-        if((corrJet.pt() > 400.) && ((corrJet.isPFJet())) && (isgoodjet(corrJet.eta(),corrJet.neutralHadronEnergyFraction(), corrJet.neutralEmEnergyFraction(),corrJet.numberOfDaughters(),corrJet.chargedHadronEnergyFraction(),corrJet.chargedMultiplicity(),corrJet.muonEnergyFraction(),corrJet.chargedEmEnergyFraction(),nfatjets) ) && (M_SD > 40.) && (!isHEM(corrJet.eta(),corrJet.phi()))) nHeavyAK8_pt400_M40++;
-        if((corrJet.pt() > 400.) && ((corrJet.isPFJet())) && (isgoodjet(corrJet.eta(),corrJet.neutralHadronEnergyFraction(), corrJet.neutralEmEnergyFraction(),corrJet.numberOfDaughters(),corrJet.chargedHadronEnergyFraction(),corrJet.chargedMultiplicity(),corrJet.muonEnergyFraction(),corrJet.chargedEmEnergyFraction(),nfatjets) ) && (M_SD > 45.) && (!isHEM(corrJet.eta(),corrJet.phi()))) nHeavyAK8_pt400_M45++;
-        if((corrJet.pt() > 400.) && ((corrJet.isPFJet())) && (isgoodjet(corrJet.eta(),corrJet.neutralHadronEnergyFraction(), corrJet.neutralEmEnergyFraction(),corrJet.numberOfDaughters(),corrJet.chargedHadronEnergyFraction(),corrJet.chargedMultiplicity(),corrJet.muonEnergyFraction(),corrJet.chargedEmEnergyFraction(),nfatjets) ) && (M_SD > 50.) && (!isHEM(corrJet.eta(),corrJet.phi()))) nHeavyAK8_pt400_M50++;
-        if((corrJet.pt() > 400.) && ((corrJet.isPFJet())) && (isgoodjet(corrJet.eta(),corrJet.neutralHadronEnergyFraction(), corrJet.neutralEmEnergyFraction(),corrJet.numberOfDaughters(),corrJet.chargedHadronEnergyFraction(),corrJet.chargedMultiplicity(),corrJet.muonEnergyFraction(),corrJet.chargedEmEnergyFraction(),nfatjets) ) && (M_SD > 55.) && (!isHEM(corrJet.eta(),corrJet.phi()))) nHeavyAK8_pt400_M55++;
-        if((corrJet.pt() > 400.) && ((corrJet.isPFJet())) && (isgoodjet(corrJet.eta(),corrJet.neutralHadronEnergyFraction(), corrJet.neutralEmEnergyFraction(),corrJet.numberOfDaughters(),corrJet.chargedHadronEnergyFraction(),corrJet.chargedMultiplicity(),corrJet.muonEnergyFraction(),corrJet.chargedEmEnergyFraction(),nfatjets) ) && (M_SD > 60.) && (!isHEM(corrJet.eta(),corrJet.phi()))) nHeavyAK8_pt400_M60++;
-        if((corrJet.pt() > 400.) && ((corrJet.isPFJet())) && (isgoodjet(corrJet.eta(),corrJet.neutralHadronEnergyFraction(), corrJet.neutralEmEnergyFraction(),corrJet.numberOfDaughters(),corrJet.chargedHadronEnergyFraction(),corrJet.chargedMultiplicity(),corrJet.muonEnergyFraction(),corrJet.chargedEmEnergyFraction(),nfatjets) ) && (M_SD > 70.) && (!isHEM(corrJet.eta(),corrJet.phi()))) nHeavyAK8_pt400_M70++;
-        if((corrJet.pt() > 300.) && ((corrJet.isPFJet())) && (isgoodjet(corrJet.eta(),corrJet.neutralHadronEnergyFraction(), corrJet.neutralEmEnergyFraction(),corrJet.numberOfDaughters(),corrJet.chargedHadronEnergyFraction(),corrJet.chargedMultiplicity(),corrJet.muonEnergyFraction(),corrJet.chargedEmEnergyFraction(),nfatjets) ) && (M_SD > 10.) && (!isHEM(corrJet.eta(),corrJet.phi()))) nHeavyAK8_pt300_M10++;
-        if((corrJet.pt() > 300.) && ((corrJet.isPFJet())) && (isgoodjet(corrJet.eta(),corrJet.neutralHadronEnergyFraction(), corrJet.neutralEmEnergyFraction(),corrJet.numberOfDaughters(),corrJet.chargedHadronEnergyFraction(),corrJet.chargedMultiplicity(),corrJet.muonEnergyFraction(),corrJet.chargedEmEnergyFraction(),nfatjets) ) && (M_SD > 20.) && (!isHEM(corrJet.eta(),corrJet.phi()))) nHeavyAK8_pt300_M20++;
-        if((corrJet.pt() > 300.) && ((corrJet.isPFJet())) && (isgoodjet(corrJet.eta(),corrJet.neutralHadronEnergyFraction(), corrJet.neutralEmEnergyFraction(),corrJet.numberOfDaughters(),corrJet.chargedHadronEnergyFraction(),corrJet.chargedMultiplicity(),corrJet.muonEnergyFraction(),corrJet.chargedEmEnergyFraction(),nfatjets) ) && (M_SD > 30.) && (!isHEM(corrJet.eta(),corrJet.phi()))) nHeavyAK8_pt300_M30++;
-        if((corrJet.pt() > 300.) && ((corrJet.isPFJet())) && (isgoodjet(corrJet.eta(),corrJet.neutralHadronEnergyFraction(), corrJet.neutralEmEnergyFraction(),corrJet.numberOfDaughters(),corrJet.chargedHadronEnergyFraction(),corrJet.chargedMultiplicity(),corrJet.muonEnergyFraction(),corrJet.chargedEmEnergyFraction(),nfatjets) ) && (M_SD > 40.) && (!isHEM(corrJet.eta(),corrJet.phi()))) nHeavyAK8_pt300_M40++;
-        if((corrJet.pt() > 300.) && ((corrJet.isPFJet())) && (isgoodjet(corrJet.eta(),corrJet.neutralHadronEnergyFraction(), corrJet.neutralEmEnergyFraction(),corrJet.numberOfDaughters(),corrJet.chargedHadronEnergyFraction(),corrJet.chargedMultiplicity(),corrJet.muonEnergyFraction(),corrJet.chargedEmEnergyFraction(),nfatjets) ) && (M_SD > 45.) && (!isHEM(corrJet.eta(),corrJet.phi()))) nHeavyAK8_pt300_M45++;
-        if((corrJet.pt() > 300.) && ((corrJet.isPFJet())) && (isgoodjet(corrJet.eta(),corrJet.neutralHadronEnergyFraction(), corrJet.neutralEmEnergyFraction(),corrJet.numberOfDaughters(),corrJet.chargedHadronEnergyFraction(),corrJet.chargedMultiplicity(),corrJet.muonEnergyFraction(),corrJet.chargedEmEnergyFraction(),nfatjets) ) && (M_SD > 50.) && (!isHEM(corrJet.eta(),corrJet.phi()))) nHeavyAK8_pt300_M50++;
-        if((corrJet.pt() > 300.) && ((corrJet.isPFJet())) && (isgoodjet(corrJet.eta(),corrJet.neutralHadronEnergyFraction(), corrJet.neutralEmEnergyFraction(),corrJet.numberOfDaughters(),corrJet.chargedHadronEnergyFraction(),corrJet.chargedMultiplicity(),corrJet.muonEnergyFraction(),corrJet.chargedEmEnergyFraction(),nfatjets) ) && (M_SD > 55.) && (!isHEM(corrJet.eta(),corrJet.phi()))) nHeavyAK8_pt300_M55++;
-        if((corrJet.pt() > 300.) && ((corrJet.isPFJet())) && (isgoodjet(corrJet.eta(),corrJet.neutralHadronEnergyFraction(), corrJet.neutralEmEnergyFraction(),corrJet.numberOfDaughters(),corrJet.chargedHadronEnergyFraction(),corrJet.chargedMultiplicity(),corrJet.muonEnergyFraction(),corrJet.chargedEmEnergyFraction(),nfatjets) ) && (M_SD > 60.) && (!isHEM(corrJet.eta(),corrJet.phi()))) nHeavyAK8_pt300_M60++;
-        if((corrJet.pt() > 300.) && ((corrJet.isPFJet())) && (isgoodjet(corrJet.eta(),corrJet.neutralHadronEnergyFraction(), corrJet.neutralEmEnergyFraction(),corrJet.numberOfDaughters(),corrJet.chargedHadronEnergyFraction(),corrJet.chargedMultiplicity(),corrJet.muonEnergyFraction(),corrJet.chargedEmEnergyFraction(),nfatjets) ) && (M_SD > 70.) && (!isHEM(corrJet.eta(),corrJet.phi()))) nHeavyAK8_pt300_M70++;
-        if((corrJet.pt() > 200.) && ((corrJet.isPFJet())) && (isgoodjet(corrJet.eta(),corrJet.neutralHadronEnergyFraction(), corrJet.neutralEmEnergyFraction(),corrJet.numberOfDaughters(),corrJet.chargedHadronEnergyFraction(),corrJet.chargedMultiplicity(),corrJet.muonEnergyFraction(),corrJet.chargedEmEnergyFraction(),nfatjets) ) && (M_SD > 10.) && (!isHEM(corrJet.eta(),corrJet.phi()))) nHeavyAK8_pt200_M10++;
-        if((corrJet.pt() > 200.) && ((corrJet.isPFJet())) && (isgoodjet(corrJet.eta(),corrJet.neutralHadronEnergyFraction(), corrJet.neutralEmEnergyFraction(),corrJet.numberOfDaughters(),corrJet.chargedHadronEnergyFraction(),corrJet.chargedMultiplicity(),corrJet.muonEnergyFraction(),corrJet.chargedEmEnergyFraction(),nfatjets) ) && (M_SD > 20.) && (!isHEM(corrJet.eta(),corrJet.phi()))) nHeavyAK8_pt200_M20++;
-        if((corrJet.pt() > 200.) && ((corrJet.isPFJet())) && (isgoodjet(corrJet.eta(),corrJet.neutralHadronEnergyFraction(), corrJet.neutralEmEnergyFraction(),corrJet.numberOfDaughters(),corrJet.chargedHadronEnergyFraction(),corrJet.chargedMultiplicity(),corrJet.muonEnergyFraction(),corrJet.chargedEmEnergyFraction(),nfatjets) ) && (M_SD > 30.) && (!isHEM(corrJet.eta(),corrJet.phi()))) nHeavyAK8_pt200_M30++;
-        if((corrJet.pt() > 200.) && ((corrJet.isPFJet())) && (isgoodjet(corrJet.eta(),corrJet.neutralHadronEnergyFraction(), corrJet.neutralEmEnergyFraction(),corrJet.numberOfDaughters(),corrJet.chargedHadronEnergyFraction(),corrJet.chargedMultiplicity(),corrJet.muonEnergyFraction(),corrJet.chargedEmEnergyFraction(),nfatjets) ) && (M_SD > 40.) && (!isHEM(corrJet.eta(),corrJet.phi()))) nHeavyAK8_pt200_M40++;
-        if((corrJet.pt() > 200.) && ((corrJet.isPFJet())) && (isgoodjet(corrJet.eta(),corrJet.neutralHadronEnergyFraction(), corrJet.neutralEmEnergyFraction(),corrJet.numberOfDaughters(),corrJet.chargedHadronEnergyFraction(),corrJet.chargedMultiplicity(),corrJet.muonEnergyFraction(),corrJet.chargedEmEnergyFraction(),nfatjets) ) && (M_SD > 45.) && (!isHEM(corrJet.eta(),corrJet.phi()))) nHeavyAK8_pt200_M45++;
-        if((corrJet.pt() > 200.) && ((corrJet.isPFJet())) && (isgoodjet(corrJet.eta(),corrJet.neutralHadronEnergyFraction(), corrJet.neutralEmEnergyFraction(),corrJet.numberOfDaughters(),corrJet.chargedHadronEnergyFraction(),corrJet.chargedMultiplicity(),corrJet.muonEnergyFraction(),corrJet.chargedEmEnergyFraction(),nfatjets) ) && (M_SD > 50.) && (!isHEM(corrJet.eta(),corrJet.phi()))) nHeavyAK8_pt200_M50++;
-        if((corrJet.pt() > 200.) && ((corrJet.isPFJet())) && (isgoodjet(corrJet.eta(),corrJet.neutralHadronEnergyFraction(), corrJet.neutralEmEnergyFraction(),corrJet.numberOfDaughters(),corrJet.chargedHadronEnergyFraction(),corrJet.chargedMultiplicity(),corrJet.muonEnergyFraction(),corrJet.chargedEmEnergyFraction(),nfatjets) ) && (M_SD > 55.) && (!isHEM(corrJet.eta(),corrJet.phi()))) nHeavyAK8_pt200_M55++;
-        if((corrJet.pt() > 200.) && ((corrJet.isPFJet())) && (isgoodjet(corrJet.eta(),corrJet.neutralHadronEnergyFraction(), corrJet.neutralEmEnergyFraction(),corrJet.numberOfDaughters(),corrJet.chargedHadronEnergyFraction(),corrJet.chargedMultiplicity(),corrJet.muonEnergyFraction(),corrJet.chargedEmEnergyFraction(),nfatjets) ) && (M_SD > 60.) && (!isHEM(corrJet.eta(),corrJet.phi()))) nHeavyAK8_pt200_M60++;
-        if((corrJet.pt() > 200.) && ((corrJet.isPFJet())) && (isgoodjet(corrJet.eta(),corrJet.neutralHadronEnergyFraction(), corrJet.neutralEmEnergyFraction(),corrJet.numberOfDaughters(),corrJet.chargedHadronEnergyFraction(),corrJet.chargedMultiplicity(),corrJet.muonEnergyFraction(),corrJet.chargedEmEnergyFraction(),nfatjets) ) && (M_SD > 70.) && (!isHEM(corrJet.eta(),corrJet.phi()))) nHeavyAK8_pt200_M70++;
+        if((sqrt(pow(corrJet.mass(),2)+pow(corrJet.pt(),2)) >= 100.) && ((corrJet.isPFJet())) && (isgoodjet(corrJet, nfatjets )) && (corrJet.mass()>= 0.)) nAK8_ET100++;
+        if((sqrt(pow(corrJet.mass(),2)+pow(corrJet.pt(),2)) >= 150.) && ((corrJet.isPFJet())) && (isgoodjet(corrJet, nfatjets )) && (corrJet.mass()>= 0.)) nAK8_ET150++;
+        if((sqrt(pow(corrJet.mass(),2)+pow(corrJet.pt(),2)) >= 200.) && ((corrJet.isPFJet())) && (isgoodjet(corrJet, nfatjets )) && (corrJet.mass()>= 0.)) nAK8_ET200++;
+        if((sqrt(pow(corrJet.mass(),2)+pow(corrJet.pt(),2)) >= 250.) && ((corrJet.isPFJet())) && (isgoodjet(corrJet, nfatjets )) && (corrJet.mass()>= 0.)) nAK8_ET250++;
+        if((sqrt(pow(corrJet.mass(),2)+pow(corrJet.pt(),2)) >= 300.) && ((corrJet.isPFJet())) && (isgoodjet(corrJet, nfatjets )) && (corrJet.mass()>= 0.)) nAK8_ET300++;
+        if((sqrt(pow(corrJet.mass(),2)+pow(corrJet.pt(),2)) >= 350.) && ((corrJet.isPFJet())) && (isgoodjet(corrJet, nfatjets )) && (corrJet.mass()>= 0.)) nAK8_ET350++;
+        if((sqrt(pow(corrJet.mass(),2)+pow(corrJet.pt(),2)) >= 400.) && ((corrJet.isPFJet())) && (isgoodjet(corrJet, nfatjets )) && (corrJet.mass()>= 0.)) nAK8_ET400++;
+        if((corrJet.pt() > 600.) && ((corrJet.isPFJet())) && (isgoodjet(corrJet, nfatjets) ) && (M_SD > 10.) && (!isHEM(corrJet.eta(),corrJet.phi()))) nHeavyAK8_pt600_M10++;
+        if((corrJet.pt() > 600.) && ((corrJet.isPFJet())) && (isgoodjet(corrJet, nfatjets) ) && (M_SD > 20.) && (!isHEM(corrJet.eta(),corrJet.phi()))) nHeavyAK8_pt600_M20++;
+        if((corrJet.pt() > 600.) && ((corrJet.isPFJet())) && (isgoodjet(corrJet, nfatjets) ) && (M_SD > 30.) && (!isHEM(corrJet.eta(),corrJet.phi()))) nHeavyAK8_pt600_M30++;
+        if((corrJet.pt() > 600.) && ((corrJet.isPFJet())) && (isgoodjet(corrJet, nfatjets) ) && (M_SD > 40.) && (!isHEM(corrJet.eta(),corrJet.phi()))) nHeavyAK8_pt600_M40++;
+        if((corrJet.pt() > 600.) && ((corrJet.isPFJet())) && (isgoodjet(corrJet, nfatjets) ) && (M_SD > 45.) && (!isHEM(corrJet.eta(),corrJet.phi()))) nHeavyAK8_pt600_M45++;
+        if((corrJet.pt() > 600.) && ((corrJet.isPFJet())) && (isgoodjet(corrJet, nfatjets) ) && (M_SD > 50.) && (!isHEM(corrJet.eta(),corrJet.phi()))) nHeavyAK8_pt600_M50++;
+        if((corrJet.pt() > 600.) && ((corrJet.isPFJet())) && (isgoodjet(corrJet, nfatjets) ) && (M_SD > 55.) && (!isHEM(corrJet.eta(),corrJet.phi()))) nHeavyAK8_pt600_M55++;
+        if((corrJet.pt() > 600.) && ((corrJet.isPFJet())) && (isgoodjet(corrJet, nfatjets) ) && (M_SD > 60.) && (!isHEM(corrJet.eta(),corrJet.phi()))) nHeavyAK8_pt600_M60++;
+        if((corrJet.pt() > 600.) && ((corrJet.isPFJet())) && (isgoodjet(corrJet, nfatjets) ) && (M_SD > 70.) && (!isHEM(corrJet.eta(),corrJet.phi()))) nHeavyAK8_pt600_M70++;
+        if((corrJet.pt() > 500.) && ((corrJet.isPFJet())) && (isgoodjet(corrJet, nfatjets) ) && (M_SD > 10.) && (!isHEM(corrJet.eta(),corrJet.phi()))) nHeavyAK8_pt500_M10++;
+        if((corrJet.pt() > 500.) && ((corrJet.isPFJet())) && (isgoodjet(corrJet, nfatjets) ) && (M_SD > 20.) && (!isHEM(corrJet.eta(),corrJet.phi()))) nHeavyAK8_pt500_M20++;
+        if((corrJet.pt() > 500.) && ((corrJet.isPFJet())) && (isgoodjet(corrJet, nfatjets) ) && (M_SD > 30.) && (!isHEM(corrJet.eta(),corrJet.phi()))) nHeavyAK8_pt500_M30++;
+        if((corrJet.pt() > 500.) && ((corrJet.isPFJet())) && (isgoodjet(corrJet, nfatjets) ) && (M_SD > 40.) && (!isHEM(corrJet.eta(),corrJet.phi()))) nHeavyAK8_pt500_M40++;
+        if((corrJet.pt() > 500.) && ((corrJet.isPFJet())) && (isgoodjet(corrJet, nfatjets) ) && (M_SD > 45.) && (!isHEM(corrJet.eta(),corrJet.phi()))) nHeavyAK8_pt500_M45++;
+        if((corrJet.pt() > 500.) && ((corrJet.isPFJet())) && (isgoodjet(corrJet, nfatjets) ) && (M_SD > 50.) && (!isHEM(corrJet.eta(),corrJet.phi()))) nHeavyAK8_pt500_M50++;
+        if((corrJet.pt() > 500.) && ((corrJet.isPFJet())) && (isgoodjet(corrJet, nfatjets) ) && (M_SD > 55.) && (!isHEM(corrJet.eta(),corrJet.phi()))) nHeavyAK8_pt500_M55++;
+        if((corrJet.pt() > 500.) && ((corrJet.isPFJet())) && (isgoodjet(corrJet, nfatjets) ) && (M_SD > 60.) && (!isHEM(corrJet.eta(),corrJet.phi()))) nHeavyAK8_pt500_M60++;
+        if((corrJet.pt() > 500.) && ((corrJet.isPFJet())) && (isgoodjet(corrJet, nfatjets) ) && (M_SD > 70.) && (!isHEM(corrJet.eta(),corrJet.phi()))) nHeavyAK8_pt500_M70++;
+        if((corrJet.pt() > 400.) && ((corrJet.isPFJet())) && (isgoodjet(corrJet, nfatjets) ) && (M_SD > 10.) && (!isHEM(corrJet.eta(),corrJet.phi()))) nHeavyAK8_pt400_M10++;
+        if((corrJet.pt() > 400.) && ((corrJet.isPFJet())) && (isgoodjet(corrJet, nfatjets) ) && (M_SD > 20.) && (!isHEM(corrJet.eta(),corrJet.phi()))) nHeavyAK8_pt400_M20++;
+        if((corrJet.pt() > 400.) && ((corrJet.isPFJet())) && (isgoodjet(corrJet, nfatjets) ) && (M_SD > 30.) && (!isHEM(corrJet.eta(),corrJet.phi()))) nHeavyAK8_pt400_M30++;
+        if((corrJet.pt() > 400.) && ((corrJet.isPFJet())) && (isgoodjet(corrJet, nfatjets) ) && (M_SD > 40.) && (!isHEM(corrJet.eta(),corrJet.phi()))) nHeavyAK8_pt400_M40++;
+        if((corrJet.pt() > 400.) && ((corrJet.isPFJet())) && (isgoodjet(corrJet, nfatjets) ) && (M_SD > 45.) && (!isHEM(corrJet.eta(),corrJet.phi()))) nHeavyAK8_pt400_M45++;
+        if((corrJet.pt() > 400.) && ((corrJet.isPFJet())) && (isgoodjet(corrJet, nfatjets) ) && (M_SD > 50.) && (!isHEM(corrJet.eta(),corrJet.phi()))) nHeavyAK8_pt400_M50++;
+        if((corrJet.pt() > 400.) && ((corrJet.isPFJet())) && (isgoodjet(corrJet, nfatjets) ) && (M_SD > 55.) && (!isHEM(corrJet.eta(),corrJet.phi()))) nHeavyAK8_pt400_M55++;
+        if((corrJet.pt() > 400.) && ((corrJet.isPFJet())) && (isgoodjet(corrJet, nfatjets) ) && (M_SD > 60.) && (!isHEM(corrJet.eta(),corrJet.phi()))) nHeavyAK8_pt400_M60++;
+        if((corrJet.pt() > 400.) && ((corrJet.isPFJet())) && (isgoodjet(corrJet, nfatjets) ) && (M_SD > 70.) && (!isHEM(corrJet.eta(),corrJet.phi()))) nHeavyAK8_pt400_M70++;
+        if((corrJet.pt() > 300.) && ((corrJet.isPFJet())) && (isgoodjet(corrJet, nfatjets) ) && (M_SD > 10.) && (!isHEM(corrJet.eta(),corrJet.phi()))) nHeavyAK8_pt300_M10++;
+        if((corrJet.pt() > 300.) && ((corrJet.isPFJet())) && (isgoodjet(corrJet, nfatjets) ) && (M_SD > 20.) && (!isHEM(corrJet.eta(),corrJet.phi()))) nHeavyAK8_pt300_M20++;
+        if((corrJet.pt() > 300.) && ((corrJet.isPFJet())) && (isgoodjet(corrJet, nfatjets) ) && (M_SD > 30.) && (!isHEM(corrJet.eta(),corrJet.phi()))) nHeavyAK8_pt300_M30++;
+        if((corrJet.pt() > 300.) && ((corrJet.isPFJet())) && (isgoodjet(corrJet, nfatjets) ) && (M_SD > 40.) && (!isHEM(corrJet.eta(),corrJet.phi()))) nHeavyAK8_pt300_M40++;
+        if((corrJet.pt() > 300.) && ((corrJet.isPFJet())) && (isgoodjet(corrJet, nfatjets) ) && (M_SD > 45.) && (!isHEM(corrJet.eta(),corrJet.phi()))) nHeavyAK8_pt300_M45++;
+        if((corrJet.pt() > 300.) && ((corrJet.isPFJet())) && (isgoodjet(corrJet, nfatjets) ) && (M_SD > 50.) && (!isHEM(corrJet.eta(),corrJet.phi()))) nHeavyAK8_pt300_M50++;
+        if((corrJet.pt() > 300.) && ((corrJet.isPFJet())) && (isgoodjet(corrJet, nfatjets) ) && (M_SD > 55.) && (!isHEM(corrJet.eta(),corrJet.phi()))) nHeavyAK8_pt300_M55++;
+        if((corrJet.pt() > 300.) && ((corrJet.isPFJet())) && (isgoodjet(corrJet, nfatjets) ) && (M_SD > 60.) && (!isHEM(corrJet.eta(),corrJet.phi()))) nHeavyAK8_pt300_M60++;
+        if((corrJet.pt() > 300.) && ((corrJet.isPFJet())) && (isgoodjet(corrJet, nfatjets) ) && (M_SD > 70.) && (!isHEM(corrJet.eta(),corrJet.phi()))) nHeavyAK8_pt300_M70++;
+        if((corrJet.pt() > 200.) && ((corrJet.isPFJet())) && (isgoodjet(corrJet, nfatjets) ) && (M_SD > 10.) && (!isHEM(corrJet.eta(),corrJet.phi()))) nHeavyAK8_pt200_M10++;
+        if((corrJet.pt() > 200.) && ((corrJet.isPFJet())) && (isgoodjet(corrJet, nfatjets) ) && (M_SD > 20.) && (!isHEM(corrJet.eta(),corrJet.phi()))) nHeavyAK8_pt200_M20++;
+        if((corrJet.pt() > 200.) && ((corrJet.isPFJet())) && (isgoodjet(corrJet, nfatjets) ) && (M_SD > 30.) && (!isHEM(corrJet.eta(),corrJet.phi()))) nHeavyAK8_pt200_M30++;
+        if((corrJet.pt() > 200.) && ((corrJet.isPFJet())) && (isgoodjet(corrJet, nfatjets) ) && (M_SD > 40.) && (!isHEM(corrJet.eta(),corrJet.phi()))) nHeavyAK8_pt200_M40++;
+        if((corrJet.pt() > 200.) && ((corrJet.isPFJet())) && (isgoodjet(corrJet, nfatjets) ) && (M_SD > 45.) && (!isHEM(corrJet.eta(),corrJet.phi()))) nHeavyAK8_pt200_M45++;
+        if((corrJet.pt() > 200.) && ((corrJet.isPFJet())) && (isgoodjet(corrJet, nfatjets) ) && (M_SD > 50.) && (!isHEM(corrJet.eta(),corrJet.phi()))) nHeavyAK8_pt200_M50++;
+        if((corrJet.pt() > 200.) && ((corrJet.isPFJet())) && (isgoodjet(corrJet, nfatjets) ) && (M_SD > 55.) && (!isHEM(corrJet.eta(),corrJet.phi()))) nHeavyAK8_pt200_M55++;
+        if((corrJet.pt() > 200.) && ((corrJet.isPFJet())) && (isgoodjet(corrJet, nfatjets) ) && (M_SD > 60.) && (!isHEM(corrJet.eta(),corrJet.phi()))) nHeavyAK8_pt200_M60++;
+        if((corrJet.pt() > 200.) && ((corrJet.isPFJet())) && (isgoodjet(corrJet, nfatjets) ) && (M_SD > 70.) && (!isHEM(corrJet.eta(),corrJet.phi()))) nHeavyAK8_pt200_M70++;
 
         if(_verbose)    std::cout << "Applying AK8 jet selection." << std::endl;
 
-        if((sqrt(pow(corrJet.mass(),2)+pow(corrJet.pt(),2)) < ET_cut) || (!(corrJet.isPFJet())) || (!isgoodjet(corrJet.eta(),corrJet.neutralHadronEnergyFraction(), corrJet.neutralEmEnergyFraction(),corrJet.numberOfDaughters(),corrJet.chargedHadronEnergyFraction(),corrJet.chargedMultiplicity(),corrJet.muonEnergyFraction(),corrJet.chargedEmEnergyFraction(),nfatjets )) || (corrJet.mass()< 0.)) continue; //userFloat("ak8PFJetsPuppiSoftDropMass")
+        if((sqrt(pow(corrJet.mass(),2)+pow(corrJet.pt(),2)) < ET_cut) || (!(corrJet.isPFJet())) || (!isgoodjet(corrJet, nfatjets )) || (corrJet.mass()< 0.)) continue; //userFloat("ak8PFJetsPuppiSoftDropMass")
 
 
         leadAK8Jets.push_back(TLorentzVector(corrJet.px(),corrJet.py(),corrJet.pz(),corrJet.energy()));
@@ -4050,10 +3884,8 @@ void clusteringAnalyzerAll_100::analyze(const edm::Event& iEvent, const edm::Eve
 
         if(_verbose)    std::cout << "Checking if jet is in veto region." << std::endl;
 
-        int vetoMap_xbin = (int)((corrJet.eta() - jetVetoMap_Xmin)*jetVetoMap_nBinsX/jetVetoMap_XRange ) +1;
-        int vetoMap_ybin = (int)((corrJet.phi() - jetVetoMap_Ymin)*jetVetoMap_nBinsY/jetVetoMap_YRange ) +1;     // phi(b) = b*(range / # bins) + b0 -> b(phi) = (phi(b) - b0)*(# bins / range)
         AK8_fails_veto_map[nfatjets] = false;
-        if(jetVetoMap->GetBinContent(vetoMap_xbin,vetoMap_ybin) > 0.) AK8_fails_veto_map[nfatjets] = true; // saved for future vetoing
+        if(failsJetVetoMap(corrJet.eta(), corrJet.phi())) AK8_fails_veto_map[nfatjets] = true; // saved for future vetoing
 
         if(_verbose)    std::cout << "Saving kinematic vars" << std::endl;
 
@@ -4071,7 +3903,7 @@ void clusteringAnalyzerAll_100::analyze(const edm::Event& iEvent, const edm::Eve
         SD_corr[nfatjets]            = SD_corr_;
 
 
-        double jec = iJet->pt() / iJet->correctedP4("Uncorrected").pt();
+        double jec = iJet->userFloat("run3JEC");   // nominal Run 3 JEC factor (corrected pt / raw pt), set in applyNominalJEC
         jet_jec_full[nfatjets] = jec;
 
         jet_mass_by_mass_[nfatjets] = corrJet.mass();
@@ -4211,23 +4043,18 @@ void clusteringAnalyzerAll_100::analyze(const edm::Event& iEvent, const edm::Eve
 
         if(_verbose)    std::cout << "Getting prefiring weights." << std::endl;
 
-        edm::Handle< double > theprefweight;
-        iEvent.getByToken(prefweight_token, theprefweight ) ;
-        prefiringWeight_nom =(*theprefweight);
+        // Run 3: no L1 prefiring correction exists, the weights are 1 by construction
+        prefiringWeight_nom = 1.0;
 
         if(_verbose)    std::cout << "Got nom prefiring weight." << std::endl;
 
         if(systematicType == "nom")
         {   
-            edm::Handle< double > theprefweightup;
-            iEvent.getByToken(prefweightup_token, theprefweightup ) ;
-            prefiringWeight_up =(*theprefweightup);
+            prefiringWeight_up = 1.0;
 
             if(_verbose)    std::cout << "Got the up prefiring weight." << std::endl;
 
-            edm::Handle< double > theprefweightdown;
-            iEvent.getByToken(prefweightdown_token, theprefweightdown ) ;
-            prefiringWeight_down =(*theprefweightdown);
+            prefiringWeight_down = 1.0;
             if(_verbose)    std::cout << "Got the down prefiring weight." << std::endl;
         }
     }
@@ -4497,7 +4324,7 @@ void clusteringAnalyzerAll_100::analyze(const edm::Event& iEvent, const edm::Eve
                    }
                     //renormalization scale
                     //compute directly from Pythia for consistency
-                    auto coup = pythia_->couplingsPtr;
+                    auto coup = &(pythia_->coupSM);   // Pythia 8.3: the SM couplings are the public member coupSM (couplingsPtr in Pythia 8.2)
                     double alpEM = coup->alphaEM(q2);
                     double alpEMup = coup->alphaEM(kUp*kUp*q2);
                     double alpEMdn = coup->alphaEM(kDn*kDn*q2);
@@ -4786,6 +4613,10 @@ void clusteringAnalyzerAll_100::analyze(const edm::Event& iEvent, const edm::Eve
                 PDFWeightDown_replica   = 1.0 - PDFWeightStdDev;
             }
 
+            // Run 3 check (2026-11-24): the fixed positions below (0, 5, 10, 15, 20, 25, 30, 35, 40 = ids 1001, 1006, ..., 1041) were compared
+            // with the initrwgt header of /QCD-4Jets_HT-2000_TuneCP5_13p6TeV_madgraphMLM-pythia8/Run3Summer22MiniAODv4 and agree with it.
+            // In that sample the PDF members 325301-325402 are ids 1049-1150 (positions 48-149); ids 1046-1047 are alpsfact variations.
+            // Other Run 3 MadGraph samples and the signal have not been checked.
             // This is the way the BEST VLQ analysis is/was doing it
             QCDRenormalization_up_BEST      = lheEventProduct->weights()[5].wgt /PDFWeightNom;   // muF = 1.0, muR = 2.0 
             QCDRenormalization_down_BEST    = lheEventProduct->weights()[10].wgt/PDFWeightNom;   // muF = 1.0, muR = 0.5
@@ -4870,15 +4701,13 @@ void clusteringAnalyzerAll_100::analyze(const edm::Event& iEvent, const edm::Eve
         std::vector<fastjet::PseudoJet> jetsFJ_jet0_;
 
         int nAK8_ = 0;
-        for(auto iJet = fatJets->begin(); iJet!=fatJets->end(); iJet++)
+        for(auto iJet = fatJetsJEC.begin(); iJet != fatJetsJEC.end(); iJet++)
         {
-            if((sqrt(pow(iJet->mass(),2)+pow(iJet->pt(),2)) < ET_cut) || (!(iJet->isPFJet())) || (!isgoodjet(iJet->eta(),iJet->neutralHadronEnergyFraction(), iJet->neutralEmEnergyFraction(),
-                    iJet->numberOfDaughters(),iJet->chargedHadronEnergyFraction(),iJet->chargedMultiplicity(),iJet->muonEnergyFraction(),
-                    iJet->chargedEmEnergyFraction(),nAK8_ )) || (iJet->mass()< 0.)) continue; 
+            if((sqrt(pow(iJet->mass(),2)+pow(iJet->pt(),2)) < ET_cut) || (!(iJet->isPFJet())) || (!isgoodjet(*iJet, nAK8_)) || (iJet->mass()< 0.)) continue; 
 
             std::vector<fastjet::PseudoJet> jet_parts; 
 
-            double jec = iJet->pt() / iJet->correctedP4("Uncorrected").pt();
+            double jec = iJet->userFloat("run3JEC");   // nominal Run 3 JEC factor (corrected pt / raw pt), set in applyNominalJEC
 
             for (unsigned int iii=0; iii<iJet->numberOfDaughters();iii++)  // get all jet particles
             {  
@@ -5575,5 +5404,21 @@ void clusteringAnalyzerAll_100::analyze(const edm::Event& iEvent, const edm::Eve
 
     if(_verbose)std::cout << " -----------------event end -----------------" << std::endl;
 }  
-DEFINE_FWK_MODULE(clusteringAnalyzerAll_100);
+// One plugin per AK8 ET cut, with the same plugin names as in Run 2. The code is shared; only ET_cut differs.
+#define DEFINE_CLUSTERING_VARIANT(NAME, ETCUT) \
+    class NAME : public clusteringAnalyzerAll \
+    { \
+    public: \
+        explicit NAME(const edm::ParameterSet& iConfig) : clusteringAnalyzerAll(iConfig, ETCUT) {} \
+    }; \
+    DEFINE_FWK_MODULE(NAME)
+
+DEFINE_CLUSTERING_VARIANT(clusteringAnalyzerAll_100,   100.);
+DEFINE_CLUSTERING_VARIANT(clusteringAnalyzerAll_150,   150.);
+DEFINE_CLUSTERING_VARIANT(clusteringAnalyzerAll_200,   200.);
+DEFINE_CLUSTERING_VARIANT(clusteringAnalyzerAll_250,   250.);
+DEFINE_CLUSTERING_VARIANT(clusteringAnalyzerAll_300,   300.);
+DEFINE_CLUSTERING_VARIANT(clusteringAnalyzerAll_350,   350.);
+DEFINE_CLUSTERING_VARIANT(clusteringAnalyzerAll_400,   400.);
+DEFINE_CLUSTERING_VARIANT(clusteringAnalyzerAll_nocut,   0.);
 //_bottom_

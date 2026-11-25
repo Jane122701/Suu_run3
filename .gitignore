@@ -1,0 +1,7 @@
+# local build / test products
+__pycache__/
+*.pyc
+clustering/test/tmp_testmaps*/
+# CRAB work areas and job outputs
+crab_projects/
+*.log

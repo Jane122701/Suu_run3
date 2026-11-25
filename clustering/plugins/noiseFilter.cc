@@ -48,23 +48,24 @@ class noiseFilter : public edm::stream::EDFilter<> {
 
 noiseFilter::noiseFilter(const edm::ParameterSet& iConfig)
 {
-    metFilters_  = consumes<edm::TriggerResults>(edm::InputTag("TriggerResults", "", "PAT"));
+    // MET filter decisions are in the TriggerResults of the MiniAOD step: process "PAT" for MC and re-MiniAOD data,
+    // "RECO" for prompt-reco data. Set in the cfg.
+    metFilters_  = consumes<edm::TriggerResults>(iConfig.getParameter<edm::InputTag>("metFilterBits"));
     year    = iConfig.getParameter<std::string>("year");
 
+    // MET filters for Run 3 (2022-2024) data and MC.
+    // Relative to the Run 2 UL list used in the Run 2 analyzer: Flag_HBHENoiseFilter and Flag_HBHENoiseIsoFilter are
+    // dropped and Flag_hfNoisyHitsFilter is added (JME Run 3 recommendation; check against the JME MET filter twiki).
     targetFilters_ = {
         "Flag_goodVertices",
         "Flag_globalSuperTightHalo2016Filter",
-        "Flag_HBHENoiseFilter",
-        "Flag_HBHENoiseIsoFilter",
         "Flag_EcalDeadCellTriggerPrimitiveFilter",
         "Flag_BadPFMuonFilter",
         "Flag_BadPFMuonDzFilter",
-        "Flag_eeBadScFilter"
+        "Flag_hfNoisyHitsFilter",
+        "Flag_eeBadScFilter",
+        "Flag_ecalBadCalibFilter"
     };
-    if(year == "2017" || year == "2018")  // 2017 and 2018 have an extra filter not present in 2016 (per twiki)
-    {
-        targetFilters_.push_back("Flag_ecalBadCalibFilter");
-    }
 
 }
 

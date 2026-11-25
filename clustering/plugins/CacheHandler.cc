@@ -8,8 +8,8 @@ Code mostly lifted from Devin Taylor's DeepDiTau project: https://github.com/dnt
 
 //Handle all the loading in the constructor
 CacheHandler::CacheHandler(const edm::FileInPath GraphPath){ //, const std::string GraphPath){
-  tensorflow::SessionOptions options;
-  tensorflow::setThreading(options, 1, "no_threads");
+  tensorflow::Options options;   // CMSSW_15 PhysicsTools/TensorFlow interface: single-threaded CPU session by default
+  options.setThreading(1);
   std::string FullPath = GraphPath.fullPath();
   graph_.reset(tensorflow::loadGraphDef(FullPath));
   session_ = tensorflow::createSession(graph_.get(), options);

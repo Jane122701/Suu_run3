@@ -1,0 +1,31 @@
+file	source	version_dir_with_identical_content
+POG/JME/2022_Summer22/jet_jerc.json.gz	/cvmfs/cms-griddata.cern.ch/cat/metadata/JME/Run3-22CDSep23-Summer22-NanoAODv12/latest/jet_jerc.json.gz	2026-06-05
+POG/JME/2022_Summer22/fatJet_jerc.json.gz	/cvmfs/cms-griddata.cern.ch/cat/metadata/JME/Run3-22CDSep23-Summer22-NanoAODv12/latest/fatJet_jerc.json.gz	2026-06-05
+POG/JME/2022_Summer22/jetvetomaps.json.gz	/cvmfs/cms-griddata.cern.ch/cat/metadata/JME/Run3-22CDSep23-Summer22-NanoAODv12/latest/jetvetomaps.json.gz	2026-06-05 2026-04-13 2025-09-23 2025-07-15 2025-06-09 2025-06-04 2025-04-11 2025-02-21
+POG/JME/2022_Summer22/jetid.json.gz	/cvmfs/cms-griddata.cern.ch/cat/metadata/JME/Run3-22CDSep23-Summer22-NanoAODv12/latest/jetid.json.gz	2026-06-05 2026-04-13 2025-09-23 2025-07-15 2025-06-09 2025-06-04 2025-05-08 2025-04-11 2025-02-21
+POG/BTV/2022_Summer22/btagging.json.gz	/cvmfs/cms-griddata.cern.ch/cat/metadata/BTV/Run3-22CDSep23-Summer22-NanoAODv12/latest/btagging.json.gz	2025-08-20 2025-07-29 2024-12-19
+POG/LUM/2022_Summer22/puWeights.json.gz	/cvmfs/cms-griddata.cern.ch/cat/metadata/LUM/Run3-22CDSep23-Summer22-NanoAODv12/latest/puWeights.json.gz	2024-01-31
+POG/JME/2022_Summer22EE/jet_jerc.json.gz	/cvmfs/cms-griddata.cern.ch/cat/metadata/JME/Run3-22EFGSep23-Summer22EE-NanoAODv12/latest/jet_jerc.json.gz	2026-06-05
+POG/JME/2022_Summer22EE/fatJet_jerc.json.gz	/cvmfs/cms-griddata.cern.ch/cat/metadata/JME/Run3-22EFGSep23-Summer22EE-NanoAODv12/latest/fatJet_jerc.json.gz	2026-06-05
+POG/JME/2022_Summer22EE/jetvetomaps.json.gz	/cvmfs/cms-griddata.cern.ch/cat/metadata/JME/Run3-22EFGSep23-Summer22EE-NanoAODv12/latest/jetvetomaps.json.gz	2026-06-05 2026-04-13 2025-10-07 2025-09-23 2025-07-15 2025-06-09 2025-04-11 2025-02-21 2025-02-12 2025-01-20
+POG/JME/2022_Summer22EE/jetid.json.gz	/cvmfs/cms-griddata.cern.ch/cat/metadata/JME/Run3-22EFGSep23-Summer22EE-NanoAODv12/latest/jetid.json.gz	2026-06-05 2026-04-13 2025-10-07
+POG/BTV/2022_Summer22EE/btagging.json.gz	/cvmfs/cms-griddata.cern.ch/cat/metadata/BTV/Run3-22EFGSep23-Summer22EE-NanoAODv12/latest/btagging.json.gz	2025-08-20 2025-07-29 2024-12-19
+POG/LUM/2022_Summer22EE/puWeights.json.gz	/cvmfs/cms-griddata.cern.ch/cat/metadata/LUM/Run3-22EFGSep23-Summer22EE-NanoAODv12/latest/puWeights.json.gz	2024-01-31
+POG/JME/2023_Summer23/jet_jerc.json.gz	/cvmfs/cms-griddata.cern.ch/cat/metadata/JME/Run3-23CSep23-Summer23-NanoAODv12/latest/jet_jerc.json.gz	2026-07-15
+POG/JME/2023_Summer23/fatJet_jerc.json.gz	/cvmfs/cms-griddata.cern.ch/cat/metadata/JME/Run3-23CSep23-Summer23-NanoAODv12/latest/fatJet_jerc.json.gz	2026-07-15
+POG/JME/2023_Summer23/jetvetomaps.json.gz	/cvmfs/cms-griddata.cern.ch/cat/metadata/JME/Run3-23CSep23-Summer23-NanoAODv12/latest/jetvetomaps.json.gz	2026-07-15 2026-06-05 2026-04-13 2025-10-07 2025-07-15 2025-06-09 2025-06-04 2025-06-02 2025-05-20 2025-04-11 2025-02-21
+POG/JME/2023_Summer23/jetid.json.gz	/cvmfs/cms-griddata.cern.ch/cat/metadata/JME/Run3-23CSep23-Summer23-NanoAODv12/latest/jetid.json.gz	2026-07-15 2026-06-05 2026-04-13 2025-10-07
+POG/BTV/2023_Summer23/btagging.json.gz	/cvmfs/cms-griddata.cern.ch/cat/metadata/BTV/Run3-23CSep23-Summer23-NanoAODv12/latest/btagging.json.gz	2025-08-20
+POG/LUM/2023_Summer23/puWeights.json.gz	/cvmfs/cms-griddata.cern.ch/cat/metadata/LUM/Run3-23CSep23-Summer23-NanoAODv12/latest/puWeights.json.gz	2024-01-31
+POG/JME/2023_Summer23BPix/jet_jerc.json.gz	/cvmfs/cms-griddata.cern.ch/cat/metadata/JME/Run3-23DSep23-Summer23BPix-NanoAODv12/latest/jet_jerc.json.gz	2026-07-15
+POG/JME/2023_Summer23BPix/fatJet_jerc.json.gz	/cvmfs/cms-griddata.cern.ch/cat/metadata/JME/Run3-23DSep23-Summer23BPix-NanoAODv12/latest/fatJet_jerc.json.gz	2026-07-15
+POG/JME/2023_Summer23BPix/jetvetomaps.json.gz	/cvmfs/cms-griddata.cern.ch/cat/metadata/JME/Run3-23DSep23-Summer23BPix-NanoAODv12/latest/jetvetomaps.json.gz	2026-07-15 2026-06-05 2026-04-13 2025-10-07 2025-06-09 2025-06-02 2025-05-20 2025-04-09 2025-02-21
+POG/JME/2023_Summer23BPix/jetid.json.gz	/cvmfs/cms-griddata.cern.ch/cat/metadata/JME/Run3-23DSep23-Summer23BPix-NanoAODv12/latest/jetid.json.gz	2026-07-15 2026-06-05 2026-04-13 2025-10-07
+POG/BTV/2023_Summer23BPix/btagging.json.gz	/cvmfs/cms-griddata.cern.ch/cat/metadata/BTV/Run3-23DSep23-Summer23BPix-NanoAODv12/latest/btagging.json.gz	2026-11-05
+POG/LUM/2023_Summer23BPix/puWeights.json.gz	/cvmfs/cms-griddata.cern.ch/cat/metadata/LUM/Run3-23DSep23-Summer23BPix-NanoAODv12/latest/puWeights.json.gz	2024-01-31
+POG/JME/2024_Summer24/jet_jerc.json.gz	/cvmfs/cms-griddata.cern.ch/cat/metadata/JME/Run3-24CDEReprocessingFGHIPrompt-Summer24-NanoAODv15/latest/jet_jerc.json.gz	2026-07-16
+POG/JME/2024_Summer24/fatJet_jerc.json.gz	/cvmfs/cms-griddata.cern.ch/cat/metadata/JME/Run3-24CDEReprocessingFGHIPrompt-Summer24-NanoAODv15/latest/fatJet_jerc.json.gz	2026-07-16
+POG/JME/2024_Summer24/jetvetomaps.json.gz	/cvmfs/cms-griddata.cern.ch/cat/metadata/JME/Run3-24CDEReprocessingFGHIPrompt-Summer24-NanoAODv15/latest/jetvetomaps.json.gz	2026-07-16 2026-07-14 2026-06-05 2025-12-02 2025-07-17
+POG/JME/2024_Summer24/jetid.json.gz	/cvmfs/cms-griddata.cern.ch/cat/metadata/JME/Run3-24CDEReprocessingFGHIPrompt-Summer24-NanoAODv15/latest/jetid.json.gz	2026-07-16 2026-07-14 2026-06-05 2025-12-02 2025-07-17 2025-07-11 2025-05-08
+POG/BTV/2024_Summer24/btagging.json.gz	/cvmfs/cms-griddata.cern.ch/cat/metadata/BTV/Run3-24CDEReprocessingFGHIPrompt-Summer24-NanoAODv15/latest/btagging.json.gz	2026-10-20 2026-10-14
+POG/LUM/2024_Summer24/puWeights_CDEFGHI.json.gz	/cvmfs/cms-griddata.cern.ch/cat/metadata/LUM/Run3-24CDEReprocessingFGHIPrompt-Summer24-NanoAODv15/latest/puWeights_CDEFGHI.json.gz	2026-04-15

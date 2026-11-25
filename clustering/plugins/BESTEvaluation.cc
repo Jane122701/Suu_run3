@@ -35,18 +35,10 @@ void BESTEvaluation::configure(const edm::ParameterSet& iConfig){
   }
   inputParamsFile.close();
 
-  // The input name needs to match the name of the input layer in the data/constantgraph.pb file
-  if      (runYear_ == "2015")  inputNames_.push_back("input_1");
-  else if (runYear_ == "2016")  inputNames_.push_back("input_1");
-  else if (runYear_ == "2017")  inputNames_.push_back("input_1");
-  else if (runYear_ == "2018")  inputNames_.push_back("input_1");
-  // abbott: odd if/else statements here, examine later
-
-  // The output name needs to match the name of the output layer in the data/constantgraph.pb file
-  if      (runYear_ == "2015")  outputName_ = "dense_7/Sigmoid";
-  else if (runYear_ == "2016")  outputName_ = "dense_7/Sigmoid";
-  else if (runYear_ == "2017")  outputName_ = "dense_7/Sigmoid";
-  else if (runYear_ == "2018")  outputName_ = "dense_7/Sigmoid";
+  // The input / output names need to match the names of the input / output layers in data/BEST_models/constantgraph_combine_0.pb.
+  // The same graph (trained on Run 2) is used for every era, so the names do not depend on the year.
+  inputNames_.push_back("input_1");
+  outputName_ = "dense_7/Sigmoid";
 
 
   inputShapes_.push_back(tensorflow::TensorShape{1, NumBESTInputs_});
