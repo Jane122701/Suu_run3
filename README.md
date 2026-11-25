@@ -131,6 +131,8 @@ ones forced by the Run 3 data format and POG recommendations:
 
 - Produce the MC b-tagging efficiency maps for every sample group and era.
 - CRAB configurations (dataset lists, lumi masks, splitting) are not part of this repository yet.
+- Only QCD MC and JetMET data have been run. The ttbar, single-top, W+jets and signal run types (top-pt weight,
+  `doPDF`) are untested in Run 3.
 - The BEST network and its scaling file are the Run 2 training.
 - The MET filter list, the 2024 b-tagger choice and the DeepTau version should be confirmed against the current
   JME, BTV and TAU pages.
