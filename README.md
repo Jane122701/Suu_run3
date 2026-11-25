@@ -66,6 +66,10 @@ Other options: `ETcut` (default `300`, the plugin used in the Run 2 production),
 `metFilterProcess`, `lumiJSON`, `verbose`. Output names follow Run 2
 (`clusteringAnalyzer_<runType>_<year>_<systematic>_output.root`, `<runType>_<year>_combined.root` for signal).
 
+As in Run 2, the nominal and signal jobs keep the full selection (at least 2 AK8 jets, HT > 1500 GeV) and all
+other systematic jobs use the slimmed selection (`slimmedSelection`: at least 3 AK8 jets, HT > 1600 GeV), so
+their trees are smaller.
+
 MC needs a b-tagging efficiency map for its sample group and era,
 `clustering/data/btaggingEffMaps/btag_efficiency_map_<group>_combined_<year>.root`
 (`<group>` = `QCDMC`, `TTbarMC`, `STMC`, `WJetsMC`, `SuuToChiChi`). These maps are not in the repository yet;
@@ -76,6 +80,18 @@ cmsRun preprocess/clustering/test/btagEfficiency_cfg.py year=2022 runType=QCDMC2
 # hadd the outputs of all samples of the group, then
 root -l -b -q 'preprocess/clustering/test/makeBtagEfficiencyMaps.C("btagCounts_QCDMC_2022.root","preprocess/clustering/data/btaggingEffMaps/btag_efficiency_map_QCDMC_combined_2022.root")'
 ```
+
+The efficiency lookup is the Run 2 one: a jet above the last pt bin with non-zero efficiency of its eta row reads
+that last bin. A map with too few jets (bins with efficiency exactly 0 or 1) therefore gives non-finite
+`bTag_eventWeight_*` for some events; the weights are stored as computed, as in Run 2.
+
+## Validation
+
+On 2026-11-24 the ntuple cfg was run with `cmsRun` on one MiniAOD file per era, 2000–3000 MC events
+(QCD-4Jets HT-2000) and 20000 JetMET data events each: nominal MC and data for all five eras, the `JEC1`,
+`JEC2` and `JER` groups for 2022 and `JEC1` for 2024. All jobs ended with exit code 0 and filled trees. The
+b-tagging efficiency maps used in these tests were made from the same few thousand events and are not in the
+repository. No production has been run.
 
 ## Differences from the Run 2 analyzer
 
